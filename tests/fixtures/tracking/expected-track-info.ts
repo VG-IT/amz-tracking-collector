@@ -19,8 +19,9 @@ export const EXPECTED_TRACK_INFO: Record<
     carrier: "Amazon",
   },
   "tracking/DQX9C2A2Y.html": {
+    // Sparse MX tracking page with no delivery-card / tracking-id markup.
     tracking: null,
-    carrier: "Amazon",
+    carrier: null,
   },
   "tracking/DfMdZRxKJ.html": {
     tracking: "501589729641C606487717",
@@ -40,7 +41,7 @@ export const EXPECTED_TRACK_INFO: Record<
   },
   "tracking/mx/DBGR5fJnJ.html": {
     tracking: "9087037061",
-    carrier: "It was  DHL.",
+    carrier: "DHL",
   },
   "tracking/mx/DBGR5fJnJ-sp.html": {
     tracking: "9087037061",

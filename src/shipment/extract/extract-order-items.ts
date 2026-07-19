@@ -34,23 +34,38 @@ const SYMBOL_TO_CURRENCY: Record<string, string> = {
 };
 
 
+function extractAsin(url: string): string | null {
+  return (
+    url.match(/\/dp\/([A-Z0-9]{8,})/i)?.[1] ??
+    url.match(/\/gp\/product\/([A-Z0-9]{8,})/i)?.[1] ??
+    url.match(/[?&]asin=([A-Z0-9]{8,})/i)?.[1] ??
+    null
+  );
+}
+
 function extractOrderItem(
   elem: Element,
 ): OrderItem | null {
   const link = elem.querySelector(ORDER_ITEM_URL_SELECTOR);
-  const href = link?.getAttribute("href");
+  const href =
+    link?.getAttribute("data-savepage-href") ||
+    link?.getAttribute("href") ||
+    null;
   if (!href) return null;
 
   const asin = extractAsin(href);
   if (!asin) return null;
 
+  const priceEl = elem.querySelector(ORDER_ITEM_PRICE_SELECTOR);
   const priceText =
-    elem.querySelector(ORDER_ITEM_PRICE_SELECTOR)?.textContent?.trim() ?? "";
+    priceEl?.textContent?.trim() ||
+    priceEl?.getAttribute("aria-label")?.trim() ||
+    "";
 
   const quantity = extractQuantity(elem);
 
   const originalPrice = extractOriginalAmount(priceText);
-	const currencySymbol = extractCurrencySymbol(priceText);
+  const currencySymbol = extractCurrencySymbol(priceText);
 
   return {
     asin,
@@ -67,25 +82,31 @@ function extractCurrencySymbol(priceText: string): string | null {
   return match ? match[1] : null;
 }
 
-
-function extractAsin(url: string): string | null {
-  return (
-    url.match(/\/dp\/([A-Z0-9]{8,})/i)?.[1] ??
-    url.match(/\/gp\/product\/([A-Z0-9]{8,})/i)?.[1] ??
-    null
-  );
-}
-
 function extractQuantity(elem: Element): number {
   const text =
-    elem.querySelector(ORDER_ITEM_QUANTITY_SELECTOR)?.textContent?.trim();
-  const n = text ? Number(text) : 1;
+    elem.querySelector(ORDER_ITEM_QUANTITY_SELECTOR)?.textContent?.trim() ||
+    elem.textContent?.match(/(?:Qty|Quantity|Cantidad|Menge)\s*[:.]?\s*(\d+)/i)?.[1];
+  const n = text ? Number(String(text).replace(/\D/g, "")) : 1;
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
 
 function extractOriginalAmount(priceText: string): number {
-  const match = priceText.match(/([\d,.]+)/);
-  return match ? Number(match[1].replace(/,/g, "")) : 0;
+  // Prefer last number-like token; support 1,131.00 and 1.131,00
+  const european = priceText.match(/(\d{1,3}(?:\.\d{3})+,\d+)/);
+  if (european) {
+    return Number(european[1].replace(/\./g, "").replace(",", "."));
+  }
+  const us = priceText.match(/(\d{1,3}(?:,\d{3})+(?:\.\d+)?)/);
+  if (us) {
+    return Number(us[1].replace(/,/g, ""));
+  }
+  const match = priceText.match(/([\d]+(?:[.,]\d+)?)/);
+  if (!match) return 0;
+  const raw = match[1];
+  if (raw.includes(",") && !raw.includes(".")) {
+    return Number(raw.replace(",", "."));
+  }
+  return Number(raw.replace(/,/g, ""));
 }
 
 function extractCurrency(priceText: string): string | null {

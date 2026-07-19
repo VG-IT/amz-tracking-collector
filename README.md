@@ -1,4 +1,4 @@
-# Amazon Order Collect
+# Amazon Tracking Collector (Chrome Extension)
 
 Chrome MV3 extension that scrapes Amazon order history (list → detail → shipment → tracking) and uploads structured order data to EveryMarket.
 
@@ -14,9 +14,25 @@ Supports **US / UK / DE / MX / CA** marketplaces.
 
 ```bash
 pnpm install
+pnpm build
 ```
 
-Before shipping, set the API token in `src/services/api.ts` (`API_TOKEN`) to a real value. The default placeholder will not authenticate against production.
+Load the extension:
+
+1. Open `chrome://extensions`
+2. Enable **Developer mode**
+3. **Load unpacked** → select the `build/` directory
+4. Open the popup, enter **Buyer email** and **Everymarket Token**, choose marketplace, click **Save**
+
+## Usage
+
+1. Extension icon opens settings only (no auto collect)
+2. Click **Check Login** to open the Amazon orders URL in the background:
+   - Sign-in page / missing auth cookie → prompt to sign in
+   - Otherwise → treated as logged in (result is cached)
+3. On any Amazon page, click the bottom-right **Collect Orders** button to start (or use **Start** in the popup)
+4. If logout is detected while collecting, run **Check Login** again
+5. Opened collector tabs are closed when the run finishes
 
 ## Develop
 
@@ -32,19 +48,7 @@ Vite serves the popup with HMR. Content/background scripts still need a full bui
 pnpm build
 ```
 
-Output goes to `build/`. Load the extension:
-
-1. Open `chrome://extensions`
-2. Enable **Developer mode**
-3. **Load unpacked** → select the `build/` directory
-
-## Usage
-
-1. Sign in to Amazon on the target marketplace (e.g. `amazon.com`, `amazon.ca`)
-2. Open **Your Orders** / order history
-3. Click the extension icon → **Fetch Orders**
-
-The content script waits for the orders page to hydrate, walks order cards page by page, fetches each order detail (items, cost, payment, address, tracking), and posts records to the EveryMarket API.
+Output goes to `build/`.
 
 ## Tests
 
@@ -58,38 +62,10 @@ npx vitest run
 npx vitest run tests/order/extract tests/tracking/extract-track-info.test.ts
 ```
 
-Some legacy suites under `tests/*.test.ts` still import removed paths and may fail; prefer the suites under `tests/order/`, `tests/shipment/`, and `tests/tracking/`.
-
-## Project layout
-
-```
-src/
-  background/          # service worker (popup ↔ content messaging)
-  content/             # content-script entry + runtime (task TTL, login/env)
-  order/               # list, extract, build, save, pagination
-  shipment/            # shipment extract + normalize
-  tracking/            # tracking page fetch + parse
-  money/               # parse money, FX, normalize costs
-  domain/              # Order / Shipment / Tracking types
-  persistence/         # domain → API payload mappers
-  services/api.ts      # EveryMarket HTTP client
-  manifest.json        # MV3 manifest (copied into build/)
-tests/
-  fixtures/            # saved Amazon HTML (us/uk/mx/ca/…)
-  order|shipment|tracking/  # extractor & flow tests
-```
-
-## Scripts
-
-| Command        | Description              |
-|----------------|--------------------------|
-| `pnpm dev`     | Vite dev server (popup)  |
-| `pnpm build`   | Typecheck + production build → `build/` |
-| `pnpm lint`    | ESLint                   |
-| `npx vitest run` | Run unit/integration tests |
-
 ## Notes
 
-- Build uses inline source maps and disables minify for easier debugging in Chrome.
-- Order sync stops when orders are older than the configured expiry window (`is-order-expired`).
-- Root-level scraped HTML dumps and `build.zip` are local debug artifacts; do not commit them.
+- Buyer email is stored in `chrome.storage.sync`
+- Everymarket token is stored in `chrome.storage.local` and shown as a password field
+- Collection stops when orders are older than the configured **Lookback days**
+- Before extraction, the collector switches the Amazon UI to English when the marketplace supports it (DE / MX / CA / etc.)
+- Build uses inline source maps and disables minify for easier debugging in Chrome

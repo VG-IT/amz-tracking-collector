@@ -19,7 +19,7 @@ describe("normalizeShipment – currency inference by domain", () => {
     },
     {
       name: "MX marketplace infers MXN from $",
-      file: "order/702-8792653-5071433.html",
+      file: "order/mx/702-8792653-5071433.html",
       domain: "www.amazon.com.mx",
       expectedCurrency: "MXN",
     },

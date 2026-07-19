@@ -1,20 +1,23 @@
-// src/content/runtime/run-once.ts
+import { SOURCE_BY_MARKETPLACE, type Marketplace } from "../../config";
 import { sendClickLog } from "../../services/api";
 import { syncOrders } from "../../order";
-import { isTaskRunning, refreshTaskTTL, clearTask } from "./task";
-import { getCurrentAmazonCountry, isLogged } from "./env";
+import {
+  formatExtractedOrdersLog,
+  takeExtractedOrders,
+} from "../../order/save/format-extracted-orders";
+import {
+  clearTask,
+  getTaskSettings,
+  isStopRequested,
+  isTaskRunning,
+  refreshTaskTTL,
+} from "./task";
+import { buildContext, getCurrentAmazonCountry, isLogged, isLoginPage } from "./env";
+import { prepareEnglishLocaleSwitch } from "./ensure-english";
 import { loadUser } from "./user";
 
-const SOURCES = {
-	"us": "AMZ_US",
-	"uk": "AMZ_UK",
-	"de": "AMZ_DE",
-	"mx": "AMZ_MX",
-	"ca": "AMZ_CA"
-}
-
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function ensureOrdersReady(timeout = 90000): Promise<void> {
@@ -23,43 +26,29 @@ export async function ensureOrdersReady(timeout = 90000): Promise<void> {
     let firstCardsSeenAt: number | null = null;
 
     const check = async () => {
-      // 1️⃣ Order number text
-      const hasOrderNumber =
-        document.body.innerText.match(/\b\d{3}-\d{7}-\d{7}\b/);
+      const hasOrderNumber = document.body.innerText.match(/\b\d{3}-\d{7}-\d{7}\b/);
 
-      // 2️⃣ Order detail links
       const orderDetailLinks =
-        document.querySelectorAll(
-          'a[href*="order-details"], a[href*="your-account"]'
-        ).length > 0;
+        document.querySelectorAll('a[href*="order-details"], a[href*="your-account"]').length > 0;
 
-      // 3️⃣ Product links
       const productLinks =
-        document.querySelectorAll(
-          'a[href*="/dp/"], a[href*="/gp/product/"]'
-        ).length > 0;
+        document.querySelectorAll('a[href*="/dp/"], a[href*="/gp/product/"]').length > 0;
 
       const cards = document.querySelectorAll("div.order-card, div#orderCard");
       const hasOrderCards = cards.length > 0;
       const hasSkeletonCards =
-        hasOrderCards && Array.from(cards).some(card => card.querySelector(".skeleton"));
+        hasOrderCards && Array.from(cards).some((card) => card.querySelector(".skeleton"));
 
       if (hasOrderCards && firstCardsSeenAt === null) {
         firstCardsSeenAt = Date.now();
       }
 
-      const cardsStableForMs =
-        firstCardsSeenAt === null ? 0 : Date.now() - firstCardsSeenAt;
+      const cardsStableForMs = firstCardsSeenAt === null ? 0 : Date.now() - firstCardsSeenAt;
       const fallbackReady = hasOrderCards && cardsStableForMs > 8000;
 
       if (
-        hasOrderCards && (
-          hasOrderNumber ||
-          orderDetailLinks ||
-          productLinks ||
-          !hasSkeletonCards ||
-          fallbackReady
-        )
+        hasOrderCards &&
+        (hasOrderNumber || orderDetailLinks || productLinks || !hasSkeletonCards || fallbackReady)
       ) {
         await sleep(1000);
         resolve();
@@ -67,11 +56,7 @@ export async function ensureOrdersReady(timeout = 90000): Promise<void> {
       }
 
       if (Date.now() - start > timeout) {
-        reject(
-          new Error(
-            "Amazon orders page did not hydrate order data in time",
-          ),
-        );
+        reject(new Error("Amazon orders page did not hydrate order data in time"));
         return;
       }
 
@@ -84,46 +69,143 @@ export async function ensureOrdersReady(timeout = 90000): Promise<void> {
   });
 }
 
-import { buildContext } from './env';
+function reportProgress(phase: string, progress = "", logLine?: string) {
+  chrome.runtime
+    .sendMessage({
+      type: "COLLECTOR_PROGRESS",
+      payload: { phase, progress, log: logLine },
+    })
+    .catch(() => {});
+}
 
-const context = buildContext();
+function reportDone(status: string, error?: string) {
+  chrome.runtime
+    .sendMessage({
+      type: "COLLECTOR_DONE",
+      payload: { status, error },
+    })
+    .catch(() => {});
+}
+
+function logExtractedOrdersIfNeeded(uploadToEverymarket: boolean) {
+  if (uploadToEverymarket) {
+    takeExtractedOrders();
+    return;
+  }
+  const records = takeExtractedOrders();
+  for (const line of formatExtractedOrdersLog(records)) {
+    reportProgress("Dry-run summary", "", line);
+  }
+}
 
 export async function runOnce() {
-  const  isRunning = !isTaskRunning();
-	console.log("isRunning", isRunning);
-
   if (!isTaskRunning()) return;
 
-  await ensureOrdersReady();
-  refreshTaskTTL();
+  if (isLoginPage()) {
+    clearTask();
+    reportDone("logged_out");
+    return;
+  }
 
+  const settings = getTaskSettings();
   const country = getCurrentAmazonCountry();
-	console.log("current country", country)
-  if (!country || !isLogged(country)) {
-    clearTask();
-    return;
-  }
-	console.log("begin to check user")
-  const user = await loadUser();
-  if (!user) {
-    clearTask();
-    return;
-  }
-	if (country in SOURCES) {
-		user.source = SOURCES[country as keyof typeof SOURCES];
-	} else {
-		user.source = 'AMZ_US'; // 默认值
-	}
+  const marketplace = (settings?.marketplace || country || "us") as Marketplace;
+  const uploadToEverymarket = settings?.uploadToEverymarket !== false;
 
-	console.log(user)
-  sendClickLog(user.email);
+  // Switch to English UI before scraping when the marketplace supports it.
+  const englishSwitchUrl = prepareEnglishLocaleSwitch(marketplace);
+  if (englishSwitchUrl) {
+    reportProgress(
+      "Switching language",
+      marketplace,
+      `Switching Amazon UI to English (${marketplace}) before extraction`,
+    );
+    location.href = englishSwitchUrl;
+    return;
+  }
 
   try {
-    const isDone = await syncOrders(user, context);
-    if (isDone) clearTask();
-    else refreshTaskTTL();
+    await ensureOrdersReady();
+  } catch (err) {
+    clearTask();
+    reportDone("error", (err as Error).message);
+    return;
+  }
+
+  refreshTaskTTL();
+
+  if (isStopRequested()) {
+    logExtractedOrdersIfNeeded(uploadToEverymarket);
+    clearTask();
+    reportDone("stopped");
+    return;
+  }
+
+  if (!country || !isLogged(country)) {
+    clearTask();
+    reportDone("logged_out");
+    return;
+  }
+
+  const pageUser = await loadUser();
+  const email = (settings?.email || pageUser?.email || "").trim();
+  if (!email) {
+    clearTask();
+    reportDone("error", "Missing buyer email");
+    return;
+  }
+
+  const user = {
+    name: pageUser?.name || email,
+    email,
+    source: SOURCE_BY_MARKETPLACE[marketplace] || "AMZ_US",
+  };
+
+  if (uploadToEverymarket && settings?.token) {
+    await chrome.storage.local.set({ token: settings.token });
+  }
+
+  reportProgress(
+    "Collecting orders",
+    location.href,
+    `Collecting as ${email}` + (uploadToEverymarket ? "" : " (upload disabled)"),
+  );
+  if (uploadToEverymarket) {
+    sendClickLog(user.email);
+  }
+
+  const context = buildContext();
+  const lookbackDays = Number(settings?.days) || 30;
+
+  try {
+    const isDone = await syncOrders(user, context, {
+      lookbackDays,
+      uploadToEverymarket,
+      shouldStop: () => isStopRequested(),
+      onProgress: (phase, progress, logLine) => reportProgress(phase, progress, logLine),
+    });
+
+    if (isStopRequested()) {
+      logExtractedOrdersIfNeeded(uploadToEverymarket);
+      clearTask();
+      reportDone("stopped");
+      return;
+    }
+
+    if (isDone) {
+      logExtractedOrdersIfNeeded(uploadToEverymarket);
+      clearTask();
+      reportDone("completed");
+    } else {
+      refreshTaskTTL();
+    }
   } catch (err) {
     console.error("Order fetch failed:", err);
+    logExtractedOrdersIfNeeded(uploadToEverymarket);
     clearTask();
+    const message = (err as Error).message || String(err);
+    if (message === "LOGGED_OUT") reportDone("logged_out");
+    else if (message.includes("Stopped")) reportDone("stopped");
+    else reportDone("error", message);
   }
 }

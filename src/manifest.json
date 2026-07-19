@@ -1,30 +1,37 @@
 {
-	"manifest_version": 3,
-	"name": "amazon order collect",
-	"version": "1.0.0",
-	"description": "amazon order collect",
-	"action": {
-		"default_popup": "index.html"
-	},
-	"background": {
-		"service_worker": "background.js"
-	},
-	"permissions": [
-		"tabs",
-		"storage",
-		"activeTab"
-	],
-	"content_scripts": [
-		{
-			"matches": [
-				"<all_urls>"
-			],
-			"js": [
-				"content.js"
-			]
-		}
-	],
-	"host_permissions": [
-		"<all_urls>"
-	]
+  "manifest_version": 3,
+  "name": "Amazon Tracking Collector",
+  "version": "1.1.0",
+  "description": "Collect Amazon orders and tracking, then sync to fulfill.everymarket.com",
+  "action": {
+    "default_popup": "index.html",
+    "default_title": "Amazon Tracking Collector"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": ["storage", "tabs", "scripting", "activeTab"],
+  "host_permissions": [
+    "https://*.amazon.com/*",
+    "https://*.amazon.co.uk/*",
+    "https://*.amazon.de/*",
+    "https://*.amazon.com.mx/*",
+    "https://*.amazon.ca/*",
+    "https://fulfill.everymarket.com/*",
+    "https://logging.everymarket.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.amazon.com/*",
+        "https://*.amazon.co.uk/*",
+        "https://*.amazon.de/*",
+        "https://*.amazon.com.mx/*",
+        "https://*.amazon.ca/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
 }

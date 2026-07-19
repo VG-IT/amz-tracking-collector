@@ -1,18 +1,30 @@
 import {
-	ShippedWithStrategy, AmazonCarrierStrategy, SpanishTrackingStrategy, SpanishCarrierStrategy,
-	EnglishTrackingStrategy, DeliveryByStrategy
+  ShippedWithStrategy,
+  AmazonCarrierStrategy,
+  SpanishTrackingStrategy,
+  SpanishCarrierStrategy,
+  EnglishTrackingStrategy,
+  DeliveryByStrategy,
+  GermanTrackingStrategy,
+  GermanCarrierStrategy,
+  FrenchTrackingStrategy,
+  FrenchCarrierStrategy,
 } from "./TrackingStrategy";
 
 const trackingStrategies = [
   new EnglishTrackingStrategy(),
   new SpanishTrackingStrategy(),
+  new GermanTrackingStrategy(),
+  new FrenchTrackingStrategy(),
 ];
 
 const carrierStrategies = [
-  new AmazonCarrierStrategy(),
   new ShippedWithStrategy(),
-	new SpanishCarrierStrategy(),
-	new DeliveryByStrategy(),
+  new SpanishCarrierStrategy(),
+  new GermanCarrierStrategy(),
+  new FrenchCarrierStrategy(),
+  new DeliveryByStrategy(),
+  new AmazonCarrierStrategy(),
 ];
 
 export function extractTrackInfoFromText(
@@ -38,9 +50,8 @@ export function extractTrackInfoFromText(
         break;
       }
     }
-    carrier ??= carrierStr.trim();
+    carrier ??= carrierStr.trim() || null;
   }
 
   return { tracking, carrier };
 }
-

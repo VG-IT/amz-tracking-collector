@@ -1,5 +1,5 @@
 const BASE_URL = "https://fulfill.everymarket.com/api/v3/amazon_orders";
-const API_TOKEN = "your_secret_token_here";
+
 type ApiResult<T> =
   | { ok: true; data: T | null }
   | { ok: false; status?: number; error: string };
@@ -16,10 +16,19 @@ export async function fetchInfo(url: string): Promise<Document> {
 }
 
 export function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 const headers = new Headers({ "Content-Type": "application/json" });
+
+async function getApiToken(): Promise<string> {
+  try {
+    const data = await chrome.storage.local.get({ token: "" });
+    return (data.token || "").trim();
+  } catch {
+    return "";
+  }
+}
 
 async function parseResponseData<T>(resp: Response): Promise<T | null> {
   if (resp.status === 204 || resp.status === 205) return null;
@@ -65,20 +74,25 @@ async function retryFetch<T>(
   }
 
   return { ok: false, error: "retry_exhausted" };
-
 }
 
-export async function sendLogFromContent(log: any) {
+export async function sendLogFromContent(log: unknown) {
   chrome.runtime.sendMessage({
-    type: 'SEND_LOG',
+    type: "SEND_LOG",
     log,
   });
 }
 
-export async function post(payload: any) {
+export async function post(payload: unknown) {
   try {
+    const token = await getApiToken();
+    if (!token) {
+      console.error("Missing Everymarket token");
+      return false;
+    }
+
     const result = await retryFetch(
-      `${BASE_URL}/batch_create?token=${API_TOKEN}`,
+      `${BASE_URL}/batch_create?token=${encodeURIComponent(token)}`,
       {
         method: "POST",
         headers,
@@ -86,57 +100,37 @@ export async function post(payload: any) {
       },
     );
 
-		sendLogFromContent(
-			 {
-        source: "amazon-order",
-        level: result.ok ? "info" : "error",
-        message: result.ok ? `Synced orders` : `Sync failed`,
-        metadata: {
-          order_count: payload.orders.length,
-          result,
-        },
-      }
-		)
+    const orderCount =
+      payload && typeof payload === "object" && "orders" in payload
+        ? Array.isArray((payload as { orders: unknown[] }).orders)
+          ? (payload as { orders: unknown[] }).orders.length
+          : 0
+        : 0;
+
+    sendLogFromContent({
+      source: "amazon-order",
+      level: result.ok ? "info" : "error",
+      message: result.ok ? "Synced orders" : "Sync failed",
+      metadata: {
+        order_count: orderCount,
+        result,
+      },
+    });
 
     return result.ok;
   } catch (err) {
     console.error("Failed to post orders:", err);
-    return false; // ❌ 异常也不抛出去
-  }
-}
-
-const LOG_ENDPOINT = "https://logging.everymarket.com/api/v1/logs";
-const LOG_API_TOKEN = "7dfbd1c8a4e2453d9b2b569f37ce8b1c3c09e89157b7268cc60b6a4e35a68c51";
-
-export async function sendLog(log: {
-  source: string;
-  level: "info" | "warn" | "error";
-  message: string;
-  metadata?: Record<string, any>;
-}) {
-  try {
-    await fetch(LOG_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-				"X-Log-Source": "frontend", 
-        "Authorization": `Bearer ${LOG_API_TOKEN}`,
-      },
-      body: JSON.stringify({
-        ...log,
-        logged_at: new Date().toISOString(),
-      }),
-    });
-  } catch (err) {
-    console.warn("Logging failed, ignored", err);
+    return false;
   }
 }
 
 export async function sendClickLog(email?: string) {
   if (!email) return;
+  const token = await getApiToken();
+  if (!token) return;
 
   await retryFetch(
-    `${BASE_URL.replace("/amazon_orders", "").replace("v3", "v2")}/plugin_click_logs?token=${API_TOKEN}`,
+    `${BASE_URL.replace("/amazon_orders", "").replace("v3", "v2")}/plugin_click_logs?token=${encodeURIComponent(token)}`,
     {
       method: "POST",
       headers,
