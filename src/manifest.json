@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Amazon Tracking Collector",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Collect Amazon orders and tracking, then sync to fulfill.everymarket.com",
   "action": {
     "default_popup": "index.html",
@@ -10,7 +10,13 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["storage", "tabs", "scripting", "activeTab", "alarms"],
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "activeTab",
+    "alarms"
+  ],
   "host_permissions": [
     "https://*.amazon.com/*",
     "https://*.amazon.co.uk/*",
@@ -32,7 +38,9 @@
         "https://*.amazon.com.mx/*",
         "https://*.amazon.ca/*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     }

@@ -36,11 +36,16 @@ function fail(message) {
   process.exit(1);
 }
 
+function executable(command) {
+  if (process.platform === "win32" && command === "npm") return "npm.cmd";
+  return command;
+}
+
 function run(command, commandArgs, options = {}) {
-  const result = spawnSync(command, commandArgs, {
+  const result = spawnSync(executable(command), commandArgs, {
     cwd: root,
     stdio: "inherit",
-    shell: process.platform === "win32",
+    shell: false,
     ...options,
   });
   if (result.error) fail(`${command}: ${result.error.message}`);
@@ -49,10 +54,10 @@ function run(command, commandArgs, options = {}) {
 }
 
 function runCapture(command, commandArgs) {
-  const result = spawnSync(command, commandArgs, {
+  const result = spawnSync(executable(command), commandArgs, {
     cwd: root,
     encoding: "utf8",
-    shell: process.platform === "win32",
+    shell: false,
   });
   if (result.error) fail(`${command}: ${result.error.message}`);
   if (result.status !== 0) {
@@ -207,7 +212,7 @@ if (!skipCommit) {
 const localTag = spawnSync("git", ["rev-parse", tag], {
   cwd: root,
   encoding: "utf8",
-  shell: process.platform === "win32",
+  shell: false,
 });
 if (localTag.status === 0) {
   fail(`Local tag ${tag} already exists.`);
@@ -216,7 +221,7 @@ if (localTag.status === 0) {
 const remoteTag = spawnSync("git", ["ls-remote", "--tags", "origin", tag], {
   cwd: root,
   encoding: "utf8",
-  shell: process.platform === "win32",
+  shell: false,
 });
 if ((remoteTag.stdout || "").includes(tag)) {
   fail(`Remote tag ${tag} already exists.`);
