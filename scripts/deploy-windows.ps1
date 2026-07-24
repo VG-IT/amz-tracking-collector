@@ -1,7 +1,7 @@
-#Requires -Version 5.1
 <#
 .SYNOPSIS
   Deploy latest GitHub Release zip (no Node/npm required).
+  Compatible with Windows PowerShell 4.0+.
 
 .PARAMETER InstallDir
   Default: %LOCALAPPDATA%\amz-tracking-collector
@@ -26,10 +26,37 @@ $Headers = @{
   "User-Agent" = "amz-tracking-collector-deploy"
 }
 
+# Older Windows / .NET defaults can omit TLS 1.2; GitHub requires it.
+try {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+} catch {
+  [Net.ServicePointManager]::SecurityProtocol = [Enum]::ToObject(
+    [Net.SecurityProtocolType],
+    3072
+  )
+}
+
 function Fail([string]$Message) {
   Write-Host ""
   Write-Host ("ERROR: " + $Message) -ForegroundColor Red
   exit 1
+}
+
+function Expand-ZipFile([string]$ZipPath, [string]$Destination) {
+  # Expand-Archive needs PowerShell 5+; use .NET for PowerShell 4.
+  if (Get-Command Expand-Archive -ErrorAction SilentlyContinue) {
+    if (-not (Test-Path $Destination)) {
+      New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    }
+    Expand-Archive -Path $ZipPath -DestinationPath $Destination -Force
+    return
+  }
+
+  if (Test-Path $Destination) {
+    Remove-Item -LiteralPath $Destination -Recurse -Force
+  }
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $Destination)
 }
 
 if (-not $InstallDir) {
@@ -89,7 +116,7 @@ if ($DryRun) {
 $tmpRoot = Join-Path $env:TEMP ("amz-tracking-deploy-" + [guid]::NewGuid().ToString("N"))
 $zipPath = Join-Path $tmpRoot $zipAsset.name
 $extractDir = Join-Path $tmpRoot "extract"
-New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
+New-Item -ItemType Directory -Path $tmpRoot -Force | Out-Null
 
 try {
   Write-Host ""
@@ -101,7 +128,7 @@ try {
 
   Write-Host ""
   Write-Host "-> Extract" -ForegroundColor Cyan
-  Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+  Expand-ZipFile -ZipPath $zipPath -Destination $extractDir
   if (-not (Test-Path (Join-Path $extractDir "manifest.json"))) {
     Fail "Zip root must contain manifest.json"
   }

@@ -1,7 +1,7 @@
-#Requires -Version 5.1
 <#
 .SYNOPSIS
   Register a Windows Scheduled Task that runs deploy-windows.ps1.
+  Compatible with Windows PowerShell 4.0+.
 
 .PARAMETER Time
   Daily local time (HH:mm). Default 09:00.

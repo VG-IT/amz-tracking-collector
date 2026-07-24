@@ -88,6 +88,7 @@ You can still publish manually with `npm run publish:release`.
    (or clone/download the repo zip — only these two files are needed)
 2. Double-click `deploy-windows.cmd`
 
+Works on **Windows PowerShell 4.0+** (uses .NET zip APIs when `Expand-Archive` is unavailable).  
 Release zips are **public** (repo is public). No GitHub token required.
 
 Installs to `%LOCALAPPDATA%\amz-tracking-collector`, then opens `chrome://extensions`.  
