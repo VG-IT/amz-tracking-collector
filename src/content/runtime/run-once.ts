@@ -170,9 +170,6 @@ export async function runOnce() {
     location.href,
     `Collecting as ${email}` + (uploadToEverymarket ? "" : " (upload disabled)"),
   );
-  if (uploadToEverymarket) {
-    sendClickLog(user.email);
-  }
 
   const context = buildContext();
   const lookbackDays = Number(settings?.days) || 30;
@@ -195,6 +192,9 @@ export async function runOnce() {
     if (isDone) {
       logExtractedOrdersIfNeeded(uploadToEverymarket);
       clearTask();
+      if (uploadToEverymarket) {
+        await sendClickLog(user.email);
+      }
       reportDone("completed");
     } else {
       refreshTaskTTL();
