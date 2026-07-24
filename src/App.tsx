@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import type { Marketplace } from "./config";
+import {
+  checkForUpdate,
+  getInstalledVersion,
+  type ExtensionUpdate,
+} from "./services/update";
 
 type Session = {
   checked: boolean;
@@ -71,6 +76,8 @@ const App: React.FC = () => {
   const [liveLog, setLiveLog] = useState("");
   const [runLogs, setRunLogs] = useState<RunLog[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [updateInfo, setUpdateInfo] = useState<ExtensionUpdate | null>(null);
+  const [installedVersion] = useState(() => getInstalledVersion());
   const logRef = useRef<HTMLPreElement>(null);
   const historyRef = useRef<HTMLPreElement>(null);
 
@@ -82,6 +89,20 @@ const App: React.FC = () => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [liveLog]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void checkForUpdate()
+      .then((update) => {
+        if (!cancelled) setUpdateInfo(update);
+      })
+      .catch(() => {
+        /* private repo / network — ignore */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const applySession = useCallback((next: Partial<Session> = {}) => {
     setSession((prev) => ({
@@ -251,8 +272,42 @@ const App: React.FC = () => {
     <div className="App">
       <header>
         <h1>Amazon Tracking Collector</h1>
-        <p className="subtitle">Sync Amazon orders &amp; tracking to EveryMarket</p>
+        <p className="subtitle">
+          Sync Amazon orders &amp; tracking to EveryMarket · v{installedVersion}
+        </p>
       </header>
+
+      {updateInfo ? (
+        <section className="login-banner warn update-banner">
+          <div>
+            Update available: <strong>v{updateInfo.version}</strong> (installed
+            v{installedVersion}). Download the zip, extract over your install
+            folder, then Reload on chrome://extensions.
+          </div>
+          <div className="login-actions">
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                void chrome.tabs.create({
+                  url: updateInfo.zipUrl || updateInfo.htmlUrl,
+                });
+              }}
+            >
+              Download zip
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                void chrome.tabs.create({ url: updateInfo.htmlUrl });
+              }}
+            >
+              Release notes
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <section className={`login-banner ${session.loggedIn ? "ok" : "warn"}`}>
         <div>

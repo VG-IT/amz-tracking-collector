@@ -50,6 +50,39 @@ pnpm build
 
 Output goes to `build/`.
 
+## Release (GitHub Release zip)
+
+Not published to the Chrome Web Store. Updates are zip files attached to [GitHub Releases](https://github.com/VG-IT/amz-tracking-collector/releases).
+
+### Publish a new version
+
+1. Bump `version` in `src/manifest.json` (semver, e.g. `1.2.0`)
+2. Commit, then either:
+
+```bash
+# local pack + manual upload
+pnpm release
+gh release create "v1.2.0" ./dist-release/amz-tracking-collector-1.2.0.zip ./dist-release/latest.json --generate-notes
+```
+
+or push a matching tag (CI builds and uploads the zip):
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+Tag must equal `src/manifest.json` version (`v` + version).
+
+### Install / update for users
+
+1. Download `amz-tracking-collector-x.y.z.zip` from the latest release
+2. Extract into a **fixed** folder (keep the same path across updates)
+3. `chrome://extensions` → Developer mode → **Load unpacked** → that folder
+4. On update: extract **over** the same folder → click **Reload**
+
+The popup checks GitHub Releases on open and prompts when a newer version exists. The repo (or at least its Releases) must be readable without auth for the check to work.
+
 ## Tests
 
 Tests use [Vitest](https://vitest.dev/) + jsdom against HTML fixtures under `tests/fixtures/`.

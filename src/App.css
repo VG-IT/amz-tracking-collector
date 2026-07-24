@@ -79,6 +79,10 @@ h1 {
   color: #b7ebe5;
 }
 
+.update-banner strong {
+  color: #ffe6b0;
+}
+
 .login-actions {
   display: flex;
   gap: 8px;

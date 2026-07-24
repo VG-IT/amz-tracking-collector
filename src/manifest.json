@@ -18,7 +18,10 @@
     "https://*.amazon.com.mx/*",
     "https://*.amazon.ca/*",
     "https://fulfill.everymarket.com/*",
-    "https://logging.everymarket.com/*"
+    "https://logging.everymarket.com/*",
+    "https://api.github.com/*",
+    "https://github.com/*",
+    "https://objects.githubusercontent.com/*"
   ],
   "content_scripts": [
     {

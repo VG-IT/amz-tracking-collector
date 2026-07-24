@@ -7,7 +7,9 @@
 		"dev": "vite",
 		"build": "tsc -b && vite build",
 		"lint": "eslint .",
-		"preview": "vite preview"
+		"preview": "vite preview",
+		"pack:release": "node scripts/pack-release.mjs",
+		"release": "npm run build && npm run pack:release"
 	},
 	"dependencies": {
 		"date-fns": "^4.1.0",
