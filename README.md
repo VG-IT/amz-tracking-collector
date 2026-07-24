@@ -34,6 +34,12 @@ Load the extension:
 4. If logout is detected while collecting, run **Check Login** again
 5. Opened collector tabs are closed when the run finishes
 
+### Scheduled collection
+
+After saving a valid login and settings, enable **Auto-run daily at 00:00 and
+12:00** in the popup. The schedule uses the computer's local time. Chrome must
+be running; if the Amazon session expires, check login again.
+
 ## Develop
 
 ```bash
@@ -91,6 +97,21 @@ First time: **Load unpacked** → that folder. Later: run again → **Reload**.
 powershell -ExecutionPolicy Bypass -File scripts\deploy-windows.ps1 -InstallDir "C:\extensions\amz-tracking-collector"
 powershell -ExecutionPolicy Bypass -File scripts\deploy-windows.ps1 -DryRun
 ```
+
+**Windows Scheduled Task** (auto-check GitHub Release daily):
+
+```powershell
+# default: daily 09:00 local, task name AmazonTrackingCollector-Deploy
+powershell -ExecutionPolicy Bypass -File scripts\install-deploy-task.ps1
+
+# custom time / install dir
+powershell -ExecutionPolicy Bypass -File scripts\install-deploy-task.ps1 -Time 08:30 -InstallDir "C:\extensions\amz-tracking-collector"
+
+# remove
+powershell -ExecutionPolicy Bypass -File scripts\uninstall-deploy-task.ps1
+```
+
+Or double-click `scripts/install-deploy-task.cmd`. After a scheduled update, open `chrome://extensions` and click **Reload** (Chrome cannot auto-reload unpacked extensions).
 
 **Dev machine (Node + gh):**
 

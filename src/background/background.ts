@@ -21,6 +21,8 @@ const LOG_API_TOKEN =
   "7dfbd1c8a4e2453d9b2b569f37ce8b1c3c09e89157b7268cc60b6a4e35a68c51";
 
 const MAX_RUN_LOGS = 3;
+const AUTO_RUN_ALARM_PREFIX = "amazon-tracking-auto-run-";
+const AUTO_RUN_HOURS = [0, 12] as const;
 
 const AMAZON_TAB_URLS = [
   "*://*.amazon.com/*",
@@ -176,6 +178,31 @@ function trackOpenedTab(tabId: number | null | undefined) {
 
 function ensureNotStopped() {
   if (state.stopRequested) throw new Error("Stopped by user");
+}
+
+function nextLocalHour(hour: number): number {
+  const next = new Date();
+  next.setHours(hour, 0, 0, 0);
+  if (next.getTime() <= Date.now()) next.setDate(next.getDate() + 1);
+  return next.getTime();
+}
+
+async function syncAutoRunAlarms() {
+  const { autoRunEnabled = false } = await chrome.storage.sync.get({
+    autoRunEnabled: false,
+  });
+
+  await Promise.all(
+    AUTO_RUN_HOURS.map(async (hour) => {
+      const name = `${AUTO_RUN_ALARM_PREFIX}${hour}`;
+      await chrome.alarms.clear(name);
+      if (autoRunEnabled) {
+        await chrome.alarms.create(name, {
+          when: nextLocalHour(hour),
+        });
+      }
+    }),
+  );
 }
 
 async function sleep(ms: number, { ignoreStop = false } = {}) {
@@ -583,4 +610,35 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
-loadCachedSession();
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (!alarm.name.startsWith(AUTO_RUN_ALARM_PREFIX)) return;
+
+  void (async () => {
+    const hour = Number(alarm.name.slice(AUTO_RUN_ALARM_PREFIX.length));
+    const { autoRunEnabled = false } = await chrome.storage.sync.get({
+      autoRunEnabled: false,
+    });
+    if (!autoRunEnabled || !AUTO_RUN_HOURS.includes(hour as 0 | 12)) return;
+
+    // One-shot alarms are recreated so they stay at local 00:00/12:00 across DST.
+    await chrome.alarms.create(alarm.name, { when: nextLocalHour(hour) });
+    await runCollector();
+  })();
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "sync" && changes.autoRunEnabled) {
+    void syncAutoRunAlarms();
+  }
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+  void syncAutoRunAlarms();
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  void syncAutoRunAlarms();
+});
+
+void loadCachedSession();
+void syncAutoRunAlarms();

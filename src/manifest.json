@@ -10,7 +10,7 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["storage", "tabs", "scripting", "activeTab"],
+  "permissions": ["storage", "tabs", "scripting", "activeTab", "alarms"],
   "host_permissions": [
     "https://*.amazon.com/*",
     "https://*.amazon.co.uk/*",

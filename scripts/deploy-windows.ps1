@@ -8,11 +8,15 @@
 
 .PARAMETER DryRun
   Print plan only.
+
+.PARAMETER Quiet
+  Do not open chrome://extensions (for Scheduled Task runs).
 #>
 [CmdletBinding()]
 param(
   [string]$InstallDir = "",
-  [switch]$DryRun
+  [switch]$DryRun,
+  [switch]$Quiet
 )
 
 $ErrorActionPreference = "Stop"
@@ -112,13 +116,15 @@ try {
   Write-Host ("OK: Deployed v" + $version + " -> " + $InstallDir) -ForegroundColor Green
   Write-Host "Next: chrome://extensions -> Load unpacked (first time) or Reload"
 
-  $chrome = @(
-    (Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"),
-    (Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe"),
-    (Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe")
-  ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-  if ($chrome) {
-    Start-Process $chrome "chrome://extensions"
+  if (-not $Quiet) {
+    $chrome = @(
+      (Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"),
+      (Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe"),
+      (Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe")
+    ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+    if ($chrome) {
+      Start-Process $chrome "chrome://extensions"
+    }
   }
 } finally {
   Remove-Item -LiteralPath $tmpRoot -Recurse -Force -ErrorAction SilentlyContinue

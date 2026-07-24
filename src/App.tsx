@@ -68,6 +68,7 @@ const App: React.FC = () => {
   const [days, setDays] = useState(30);
   const [marketplace, setMarketplace] = useState<Marketplace>("us");
   const [uploadToEverymarket, setUploadToEverymarket] = useState(true);
+  const [autoRunEnabled, setAutoRunEnabled] = useState(false);
   const [session, setSession] = useState<Session>({ checked: false, loggedIn: false });
   const [running, setRunning] = useState(false);
   const [phase, setPhase] = useState("—");
@@ -157,6 +158,7 @@ const App: React.FC = () => {
         days: 30,
         marketplace: "us",
         uploadToEverymarket: true,
+        autoRunEnabled: false,
       }),
       chrome.storage.local.get({ token: "" }),
     ]);
@@ -164,6 +166,7 @@ const App: React.FC = () => {
     setDays(Number(syncData.days) || 30);
     setMarketplace((syncData.marketplace as Marketplace) || "us");
     setUploadToEverymarket(syncData.uploadToEverymarket !== false);
+    setAutoRunEnabled(syncData.autoRunEnabled === true);
     setToken(localData.token || "");
   }, []);
 
@@ -185,15 +188,25 @@ const App: React.FC = () => {
         days: nextDays,
         marketplace,
         uploadToEverymarket,
+        autoRunEnabled,
       }),
       chrome.storage.local.set({ token: nextToken }),
     ]);
     appendLog(
       `Settings saved: ${nextEmail} (${marketplace})` +
-        (uploadToEverymarket ? "" : ", upload off"),
+        (uploadToEverymarket ? "" : ", upload off") +
+        (autoRunEnabled ? ", auto-run at 00:00/12:00" : ""),
     );
     return true;
-  }, [email, token, days, marketplace, uploadToEverymarket, appendLog]);
+  }, [
+    email,
+    token,
+    days,
+    marketplace,
+    uploadToEverymarket,
+    autoRunEnabled,
+    appendLog,
+  ]);
 
   const refreshSession = useCallback(async () => {
     setLoginBusy(true);
@@ -408,6 +421,18 @@ const App: React.FC = () => {
             Dry-run: scrape only; order and tracking details appear in the final log.
           </p>
         )}
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={autoRunEnabled}
+            onChange={(e) => setAutoRunEnabled(e.target.checked)}
+          />
+          <span>Auto-run daily at 00:00 and 12:00</span>
+        </label>
+        <p className="hint checkbox-hint">
+          Uses this computer&apos;s local time. Chrome must be running and Amazon login must remain
+          valid.
+        </p>
 
         <div className="actions">
           <button
