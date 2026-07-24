@@ -9,7 +9,11 @@
 		"lint": "eslint .",
 		"preview": "vite preview",
 		"pack:release": "node scripts/pack-release.mjs",
-		"release": "npm run build && npm run pack:release"
+		"release": "npm run build && npm run pack:release",
+		"publish:release": "node scripts/publish-release.mjs",
+		"publish:current": "node scripts/publish-release.mjs --current",
+		"deploy": "node scripts/deploy.mjs",
+		"deploy:dry": "node scripts/deploy.mjs --dry-run"
 	},
 	"dependencies": {
 		"date-fns": "^4.1.0",

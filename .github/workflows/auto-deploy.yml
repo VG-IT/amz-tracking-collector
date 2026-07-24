@@ -1,0 +1,69 @@
+name: Auto Deploy Release
+
+# When main advances and src/manifest.json version has no GitHub Release yet,
+# build the zip and publish it automatically.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/manifest.json"
+      - "src/**"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - "scripts/pack-release.mjs"
+      - ".github/workflows/auto-deploy.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Resolve version
+        id: ver
+        run: |
+          VERSION=$(node -p "require('./src/manifest.json').version")
+          TAG="v${VERSION}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q "${TAG}"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip if already released
+        if: steps.ver.outputs.exists == 'true'
+        run: echo "Release ${{ steps.ver.outputs.tag }} already exists — skip"
+
+      - name: Install
+        if: steps.ver.outputs.exists == 'false'
+        run: npm ci
+
+      - name: Build & pack
+        if: steps.ver.outputs.exists == 'false'
+        run: npm run release
+
+      - name: Publish GitHub Release
+        if: steps.ver.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist-release/amz-tracking-collector-*.zip
+            dist-release/latest.json

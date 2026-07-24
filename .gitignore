@@ -12,6 +12,7 @@ dist
 dist-ssr
 dist-release
 build
+.deploy-dir
 *.local
 
 # Editor directories and files

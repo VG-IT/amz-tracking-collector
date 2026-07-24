@@ -54,34 +54,63 @@ Output goes to `build/`.
 
 Not published to the Chrome Web Store. Updates are zip files attached to [GitHub Releases](https://github.com/VG-IT/amz-tracking-collector/releases).
 
-### Publish a new version
+### Publish a new version (one-click)
 
-1. Bump `version` in `src/manifest.json` (semver, e.g. `1.2.0`)
-2. Commit, then either:
-
-```bash
-# local pack + manual upload
-pnpm release
-gh release create "v1.2.0" ./dist-release/amz-tracking-collector-1.2.0.zip ./dist-release/latest.json --generate-notes
-```
-
-or push a matching tag (CI builds and uploads the zip):
+Working tree must be clean. Requires [GitHub CLI](https://cli.github.com/) (`gh auth login`).
 
 ```bash
-git tag v1.2.0
-git push origin v1.2.0
+# bump patch (1.1.0 → 1.1.1), build, commit, tag, upload zip
+npm run publish:release
+
+# or: --minor / --major / --version 1.2.0 / --current / --dry-run
+npm run publish:current
 ```
 
-Tag must equal `src/manifest.json` version (`v` + version).
+Windows: double-click `scripts/publish-release.cmd` (publishes **current** version).
+
+### Auto deploy (CI)
+
+Pushing to `main` with a new `src/manifest.json` version (no matching tag yet) triggers [`.github/workflows/auto-deploy.yml`](.github/workflows/auto-deploy.yml): build zip → create GitHub Release automatically.
+
+You can still publish manually with `npm run publish:release`.
 
 ### Install / update for users
 
-1. Download `amz-tracking-collector-x.y.z.zip` from the latest release
-2. Extract into a **fixed** folder (keep the same path across updates)
-3. `chrome://extensions` → Developer mode → **Load unpacked** → that folder
-4. On update: extract **over** the same folder → click **Reload**
+**Windows without Node/npm** (recommended for ops machines):
 
-The popup checks GitHub Releases on open and prompts when a newer version exists. The repo (or at least its Releases) must be readable without auth for the check to work.
+1. Copy `scripts/deploy-windows.cmd` + `scripts/deploy-windows.ps1` to the PC  
+   (or clone/download the repo zip — only these two files are needed)
+2. Double-click `deploy-windows.cmd`
+
+Release zips are **public** (repo is public). No GitHub token required.
+
+Installs to `%LOCALAPPDATA%\amz-tracking-collector`, then opens `chrome://extensions`.  
+First time: **Load unpacked** → that folder. Later: run again → **Reload**.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\deploy-windows.ps1 -InstallDir "C:\extensions\amz-tracking-collector"
+powershell -ExecutionPolicy Bypass -File scripts\deploy-windows.ps1 -DryRun
+```
+
+**Dev machine (Node + gh):**
+
+```bash
+npm run deploy
+# or double-click scripts/deploy.cmd
+```
+
+Override install path:
+
+```bash
+npm run deploy -- --dir "C:\\extensions\\amz-tracking-collector"
+# or set AMZ_TRACKING_COLLECTOR_HOME / write path into .deploy-dir
+```
+
+Manual download (no auth):
+
+https://github.com/VG-IT/amz-tracking-collector/releases/latest
+
+The popup checks GitHub Releases on open and prompts when a newer version exists.
 
 ## Tests
 
