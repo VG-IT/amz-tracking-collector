@@ -15,6 +15,7 @@ import {
 import { buildContext, getCurrentAmazonCountry, isLogged, isLoginPage } from "./env";
 import { prepareEnglishLocaleSwitch } from "./ensure-english";
 import { loadUser } from "./user";
+import { ORDER_SELECTOR } from "../../order/list/order-selectors";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -23,34 +24,55 @@ function sleep(ms: number): Promise<void> {
 export async function ensureOrdersReady(timeout = 90000): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
-    let firstCardsSeenAt: number | null = null;
+    let firstHydratedAt: number | null = null;
+    let lastCardCount = -1;
+    let stableCountSince = Date.now();
 
     const check = async () => {
-      const hasOrderNumber = document.body.innerText.match(/\b\d{3}-\d{7}-\d{7}\b/);
+      const text = document.body?.innerText || "";
+      const hasOrderNumber = /\b\d{3}-\d{7}-\d{7}\b/.test(text);
 
       const orderDetailLinks =
-        document.querySelectorAll('a[href*="order-details"], a[href*="your-account"]').length > 0;
+        document.querySelectorAll(
+          'a[href*="order-details"], a[href*="orderID="], a[href*="orderId="]',
+        ).length > 0;
 
-      const productLinks =
-        document.querySelectorAll('a[href*="/dp/"], a[href*="/gp/product/"]').length > 0;
-
-      const cards = document.querySelectorAll("div.order-card, div#orderCard");
-      const hasOrderCards = cards.length > 0;
+      const cards = document.querySelectorAll(ORDER_SELECTOR);
+      const cardCount = cards.length;
+      const hasOrderCards = cardCount > 0;
       const hasSkeletonCards =
-        hasOrderCards && Array.from(cards).some((card) => card.querySelector(".skeleton"));
+        hasOrderCards &&
+        Array.from(cards).some((card) =>
+          card.querySelector(".skeleton, .a-spinner, [class*='skeleton']"),
+        );
 
-      if (hasOrderCards && firstCardsSeenAt === null) {
-        firstCardsSeenAt = Date.now();
+      if (cardCount !== lastCardCount) {
+        lastCardCount = cardCount;
+        stableCountSince = Date.now();
       }
 
-      const cardsStableForMs = firstCardsSeenAt === null ? 0 : Date.now() - firstCardsSeenAt;
-      const fallbackReady = hasOrderCards && cardsStableForMs > 8000;
+      const countStableMs = Date.now() - stableCountSince;
+      const hydrated = hasOrderCards && !hasSkeletonCards && (hasOrderNumber || orderDetailLinks);
 
+      if (hydrated && firstHydratedAt === null) {
+        firstHydratedAt = Date.now();
+      }
+
+      // Prefer real order identifiers; require brief stability so SPA replacements settle.
+      if (hydrated && countStableMs >= 800 && Date.now() - (firstHydratedAt || 0) >= 500) {
+        await sleep(500);
+        resolve();
+        return;
+      }
+
+      // Slow pages: cards present without skeleton long enough, even if OCR-like text lags.
       if (
         hasOrderCards &&
-        (hasOrderNumber || orderDetailLinks || productLinks || !hasSkeletonCards || fallbackReady)
+        !hasSkeletonCards &&
+        countStableMs >= 5000 &&
+        Date.now() - start >= 5000
       ) {
-        await sleep(1000);
+        await sleep(500);
         resolve();
         return;
       }
