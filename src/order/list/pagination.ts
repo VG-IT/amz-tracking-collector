@@ -112,7 +112,7 @@ export async function goToNextPage(timeoutMs = 90000): Promise<boolean> {
   // Already on target (should not happen); avoid false "empty page" completion.
   if (absoluteNext === location.href) return false;
 
-  preparePluginNavigation();
+  preparePluginNavigation(nextUrl);
   location.href = nextUrl;
 
   const remaining = () => Math.max(5_000, timeoutMs - 500);

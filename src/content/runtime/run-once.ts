@@ -143,9 +143,9 @@ export async function runOnce() {
       marketplace,
       `Switching Amazon UI to English (${marketplace}) before extraction`,
     );
-    preparePluginNavigation();
-    location.href = englishSwitchUrl;
-    return;
+  preparePluginNavigation(englishSwitchUrl);
+  location.href = englishSwitchUrl;
+  return;
   }
 
   try {

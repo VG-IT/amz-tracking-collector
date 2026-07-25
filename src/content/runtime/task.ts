@@ -78,6 +78,6 @@ export function clearTask() {
 }
 
 /** Bypass close confirmation for the next plugin-driven navigation. */
-export function preparePluginNavigation() {
-  allowPluginNavigation();
+export function preparePluginNavigation(nextUrl?: string) {
+  allowPluginNavigation(nextUrl);
 }

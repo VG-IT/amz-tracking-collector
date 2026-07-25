@@ -11,7 +11,7 @@ export function goToOrderHistoryPage() {
   const orderHistoryPage = "/your-orders/orders";
   const fullUrl = getFullUrl(orderHistoryPage);
   console.log("Go to order history:", fullUrl);
-  preparePluginNavigation();
+  preparePluginNavigation(fullUrl);
   window.location.href = fullUrl;
 }
 

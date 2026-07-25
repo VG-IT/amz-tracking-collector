@@ -605,6 +605,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse({ ok: true });
     return false;
   }
+  if (message?.type === "COLLECTOR_TAB_CLOSING") {
+    log("Collector tab is being closed while a run is active");
+    sendResponse({ ok: true });
+    return false;
+  }
   if (message?.type === "COLLECTOR_DONE") {
     state.collectionEnd = {
       status: message.payload?.status || "completed",
