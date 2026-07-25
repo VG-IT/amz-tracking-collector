@@ -305,6 +305,17 @@ async function closeCollectorTabs() {
 
   if (!ids.length) return;
 
+  // Let content scripts drop beforeunload so extension-owned closes are not blocked.
+  await Promise.all(
+    ids.map(async (tabId) => {
+      try {
+        await chrome.tabs.sendMessage(tabId, { type: "allowTabClose" });
+      } catch {
+        /* tab may already be gone / no content script */
+      }
+    }),
+  );
+
   try {
     await chrome.tabs.remove(ids);
     log(`Closed ${ids.length} opened tab(s)`);

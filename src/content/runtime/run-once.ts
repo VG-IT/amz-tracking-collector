@@ -10,6 +10,7 @@ import {
   getTaskSettings,
   isStopRequested,
   isTaskRunning,
+  preparePluginNavigation,
   refreshTaskTTL,
 } from "./task";
 import { buildContext, getCurrentAmazonCountry, isLogged, isLoginPage } from "./env";
@@ -142,6 +143,7 @@ export async function runOnce() {
       marketplace,
       `Switching Amazon UI to English (${marketplace}) before extraction`,
     );
+    preparePluginNavigation();
     location.href = englishSwitchUrl;
     return;
   }

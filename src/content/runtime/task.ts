@@ -1,6 +1,7 @@
 // src/content/runtime/task.ts
 import { clearLanguageEnsureFlag } from "./ensure-english";
 import { clearExtractedOrders } from "../../order/save/format-extracted-orders";
+import { allowPluginNavigation, disableCloseGuard, enableCloseGuard } from "./close-guard";
 
 const RUNNING = "running";
 
@@ -38,6 +39,7 @@ export function isStopRequested(): boolean {
 
 export function requestStop() {
   sessionStorage.setItem(TASK_STOP_KEY, "1");
+  disableCloseGuard();
 }
 
 export function startTask(settings?: TaskSettings) {
@@ -49,6 +51,7 @@ export function startTask(settings?: TaskSettings) {
     sessionStorage.setItem(TASK_SETTINGS_KEY, JSON.stringify(settings));
   }
   refreshTaskTTL();
+  enableCloseGuard();
 }
 
 export function getTaskSettings(): TaskSettings | null {
@@ -71,4 +74,10 @@ export function clearTask() {
   sessionStorage.removeItem(TASK_SETTINGS_KEY);
   sessionStorage.removeItem(TASK_STOP_KEY);
   clearLanguageEnsureFlag();
+  disableCloseGuard();
+}
+
+/** Bypass close confirmation for the next plugin-driven navigation. */
+export function preparePluginNavigation() {
+  allowPluginNavigation();
 }

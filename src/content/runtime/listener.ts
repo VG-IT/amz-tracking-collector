@@ -1,6 +1,7 @@
-import { isTaskRunning, requestStop, startTask, type TaskSettings } from "./task";
+import { isTaskRunning, preparePluginNavigation, requestStop, startTask, type TaskSettings } from "./task";
 import { isLoginPage } from "./env";
 import { runOnce } from "./run-once";
+import { disableCloseGuard } from "./close-guard";
 
 function getFullUrl(relativePath: string) {
   return new URL(relativePath, window.location.origin).href;
@@ -10,6 +11,7 @@ export function goToOrderHistoryPage() {
   const orderHistoryPage = "/your-orders/orders";
   const fullUrl = getFullUrl(orderHistoryPage);
   console.log("Go to order history:", fullUrl);
+  preparePluginNavigation();
   window.location.href = fullUrl;
 }
 
@@ -32,6 +34,14 @@ export function initMessageListener() {
 
       if (message?.type === "stopCollect") {
         requestStop();
+        sendResponse({ ok: true });
+        return false;
+      }
+
+      // Background closes collector tabs; don't block with beforeunload.
+      if (message?.type === "allowTabClose") {
+        disableCloseGuard();
+        preparePluginNavigation();
         sendResponse({ ok: true });
         return false;
       }

@@ -1,5 +1,6 @@
 import { ORDER_SELECTOR, NEXT_PAGE_SELECTOR } from "./order-selectors";
 import { ensureOrdersReady } from "@/content/runtime/run-once";
+import { preparePluginNavigation } from "@/content/runtime/task";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -111,6 +112,7 @@ export async function goToNextPage(timeoutMs = 90000): Promise<boolean> {
   // Already on target (should not happen); avoid false "empty page" completion.
   if (absoluteNext === location.href) return false;
 
+  preparePluginNavigation();
   location.href = nextUrl;
 
   const remaining = () => Math.max(5_000, timeoutMs - 500);
