@@ -152,7 +152,7 @@ export async function syncOrders(
     options.onProgress?.(
       "Collecting orders",
       `page ${page} next`,
-      `Opening orders page ${nextPage} via pagination control`,
+      `Scrolling to pagination, then opening orders page ${nextPage}`,
     );
 
     const result = await goToNextOrdersPageViaUi();
