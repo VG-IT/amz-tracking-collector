@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Amazon Tracking Collector",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "description": "Collect Amazon orders and tracking, then sync to fulfill.everymarket.com",
   "action": {
     "default_popup": "index.html",
