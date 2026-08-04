@@ -1,19 +1,14 @@
 import { ORDER_SELECTOR, NEXT_PAGE_SELECTOR } from "./order-selectors";
-import { ensureOrdersReady } from "@/content/runtime/run-once";
-import { preparePluginNavigation } from "@/content/runtime/task";
+import { fetchInfo } from "@/services/api";
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function getCurrentPage(): number {
-  const match = location.hash.match(/pagination\/(\d+)/);
+function getCurrentPageFromHref(href: string): number {
+  const match = href.match(/#pagination\/(\d+)/);
   return match ? Number(match[1]) : 1;
 }
 
-/** Snapshot of current list content so we can detect post-navigation refresh. */
-export function getOrdersPageSignature(): string {
-  const cards = Array.from(document.querySelectorAll(ORDER_SELECTOR));
+/** Snapshot of list content for duplicate-page detection. */
+export function getOrdersPageSignature(root: ParentNode = document): string {
+  const cards = Array.from(root.querySelectorAll(ORDER_SELECTOR));
   const orderNumbers = cards
     .map(
       (card) =>
@@ -23,22 +18,22 @@ export function getOrdersPageSignature(): string {
     )
     .filter(Boolean)
     .slice(0, 8);
-  return [
-    location.pathname,
-    location.search,
-    location.hash,
-    String(cards.length),
-    orderNumbers.join(","),
-  ].join("|");
+  const loc =
+    root === document
+      ? `${location.pathname}${location.search}${location.hash}`
+      : "";
+  return [loc, String(cards.length), orderNumbers.join(",")].join("|");
 }
 
-function getNextPageUrl(): string | null {
-  const nextLink = document.querySelector<HTMLAnchorElement>(
+export function getNextPageUrl(
+  root: ParentNode = document,
+  currentHref = typeof location !== "undefined" ? location.href : "",
+): string | null {
+  const nextLink = root.querySelector<HTMLAnchorElement>(
     `${NEXT_PAGE_SELECTOR}, li.a-last a[href]`,
   );
   if (!nextLink) return null;
 
-  // Disabled "next" control (last page)
   const parent = nextLink.closest("li");
   if (parent?.classList.contains("a-disabled")) return null;
 
@@ -46,98 +41,64 @@ function getNextPageUrl(): string | null {
   if (!href || href === "#") return null;
 
   try {
-    const url = new URL(href, location.origin);
+    const url = new URL(href, currentHref || location.origin);
     if (url.searchParams.get("startIndex") !== null) {
-      return href;
+      return url.toString();
     }
   } catch {
     /* fall through */
   }
 
   if (href.includes("#pagination/next")) {
-    const current = getCurrentPage();
-    return `/gp/your-account/order-history#pagination/${current + 1}/`;
+    const current = getCurrentPageFromHref(currentHref || location.href);
+    return new URL(
+      `/gp/your-account/order-history#pagination/${current + 1}/`,
+      location.origin,
+    ).toString();
   }
 
-  // Absolute / relative next links Amazon uses on newer layouts
-  if (href.includes("order-history") || href.includes("your-orders") || href.includes("startIndex")) {
-    return href;
+  if (
+    href.includes("order-history") ||
+    href.includes("your-orders") ||
+    href.includes("startIndex")
+  ) {
+    try {
+      return new URL(href, currentHref || location.origin).toString();
+    } catch {
+      return href;
+    }
   }
 
   return null;
 }
 
-async function waitForOrdersPageChange(
-  previousSignature: string,
-  previousHref: string,
-  timeoutMs: number,
-): Promise<void> {
-  const started = Date.now();
-
-  while (Date.now() - started < timeoutMs) {
-    const hrefChanged = location.href !== previousHref;
-    const signature = getOrdersPageSignature();
-    const signatureChanged = signature !== previousSignature;
-    const cards = document.querySelectorAll(ORDER_SELECTOR);
-    const hasSkeleton = Array.from(cards).some((card) =>
-      card.querySelector(".skeleton, .a-spinner, .loading"),
-    );
-
-    // Hash/SPA transition: old cards cleared, or content replaced.
-    if (hrefChanged && (signatureChanged || cards.length === 0 || hasSkeleton)) {
-      return;
-    }
-
-    // Full soft refresh without href change is rare; still accept signature change.
-    if (signatureChanged && !hasSkeleton) {
-      return;
-    }
-
-    await sleep(300);
-  }
-}
-
 /**
- * Navigate to the next orders page and wait until the new list has hydrated.
- * @returns false when there is no next page.
+ * Load the next orders list via fetch (no tab navigation).
+ * Keeps the content-script sync loop alive across pages.
  */
-export async function goToNextPage(timeoutMs = 90000): Promise<boolean> {
-  const nextUrl = getNextPageUrl();
-  if (!nextUrl) return false;
+export async function fetchNextOrdersDocument(
+  currentDoc: Document = document,
+  currentPage = 1,
+): Promise<Document | null> {
+  let nextUrl = getNextPageUrl(currentDoc, location.href);
+  if (!nextUrl) return null;
 
-  const previousSignature = getOrdersPageSignature();
-  const previousHref = location.href;
-  const absoluteNext = new URL(nextUrl, location.origin).href;
+  const absolute = new URL(nextUrl, location.href);
 
-  // Already on target (should not happen); avoid false "empty page" completion.
-  if (absoluteNext === location.href) return false;
-
-  preparePluginNavigation(nextUrl);
-  location.href = nextUrl;
-
-  const remaining = () => Math.max(5_000, timeoutMs - 500);
-
-  // Give the navigation a moment to apply (hash change or document unload).
-  await sleep(400);
-
-  // If this was a full document navigation, this context is going away.
-  // For same-document / SPA pagination, wait for content to change then hydrate.
-  try {
-    await waitForOrdersPageChange(previousSignature, previousHref, remaining());
-    await ensureOrdersReady(remaining());
-
-    // Extra guard: signature must not still equal the previous page after ready.
-    const started = Date.now();
-    while (
-      getOrdersPageSignature() === previousSignature &&
-      Date.now() - started < 15_000
-    ) {
-      await sleep(400);
-    }
-  } catch (err) {
-    // Propagate timeout/hydration failures to caller instead of returning empty page.
-    throw err;
+  // Tab stays on page 1 while we fetch; always drive hash pagination from
+  // the logical page counter (not location.hash / #pagination/next).
+  if (
+    absolute.hash.includes("pagination") &&
+    absolute.searchParams.get("startIndex") === null
+  ) {
+    absolute.hash = `pagination/${currentPage + 1}/`;
   }
 
-  return true;
+  const nextDoc = await fetchInfo(absolute.toString());
+  const cards = nextDoc.querySelectorAll(ORDER_SELECTOR);
+
+  // Hash SPA URLs often ignore the hash over HTTP and return the first page.
+  if (cards.length === 0) return null;
+
+  return nextDoc;
 }

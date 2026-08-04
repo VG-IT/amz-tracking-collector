@@ -1,7 +1,7 @@
 // src/content/runtime/task.ts
 import { clearLanguageEnsureFlag } from "./ensure-english";
 import { clearExtractedOrders } from "../../order/save/format-extracted-orders";
-import { allowPluginNavigation, disableCloseGuard, enableCloseGuard } from "./close-guard";
+import { allowPluginNavigation, disableCloseGuard, enableCloseGuard, clearPluginNavigationFlag } from "./close-guard";
 
 const RUNNING = "running";
 
@@ -44,6 +44,7 @@ export function requestStop() {
 
 export function startTask(settings?: TaskSettings) {
   sessionStorage.removeItem(TASK_STOP_KEY);
+  clearPluginNavigationFlag();
   clearLanguageEnsureFlag();
   clearExtractedOrders();
   sessionStorage.setItem(TASK_KEY, RUNNING);

@@ -1,7 +1,13 @@
 import { collectOrdersOnPage } from "./list/order-list";
 import { saveOrders } from "./save/save-orders";
-import { goToNextPage } from "./list/pagination";
-import { isOrdersExpired } from "./domain/is-order-expired";
+import {
+  fetchNextOrdersDocument,
+  getOrdersPageSignature,
+} from "./list/pagination";
+import {
+  describeLookbackStop,
+  isOrdersExpired,
+} from "./domain/is-order-expired";
 import { Order } from "@/domain/Order";
 import { ensureOrdersReady } from "@/content/runtime/run-once";
 
@@ -20,13 +26,15 @@ async function collectOrdersWithRetry(
   context: { domain?: string },
   options: SyncOptions,
   page: number,
+  root: ParentNode,
 ): Promise<Order[]> {
-  let orders = (await collectOrdersOnPage(context)).filter(
+  let orders = (await collectOrdersOnPage(context, root)).filter(
     (o): o is Order => o !== null,
   );
 
-  // Slow SPA pagination can briefly yield an empty DOM; wait and retry before
-  // treating the page as the end of history.
+  // Live document only: fetched HTML is already complete.
+  if (root !== document) return orders;
+
   for (let attempt = 1; attempt <= 3 && orders.length === 0; attempt++) {
     if (options.shouldStop?.()) throw new Error("Stopped by user");
     options.onProgress?.(
@@ -36,7 +44,7 @@ async function collectOrdersWithRetry(
     );
     await sleep(1000 * attempt);
     await ensureOrdersReady(60_000);
-    orders = (await collectOrdersOnPage(context)).filter(
+    orders = (await collectOrdersOnPage(context, root)).filter(
       (o): o is Order => o !== null,
     );
   }
@@ -52,6 +60,8 @@ export async function syncOrders(
   const lookbackDays = options.lookbackDays ?? 30;
   const uploadToEverymarket = options.uploadToEverymarket !== false;
   let page = 1;
+  let listRoot: Document | ParentNode = document;
+  let previousSignature = "";
 
   while (true) {
     if (options.shouldStop?.()) {
@@ -64,7 +74,27 @@ export async function syncOrders(
       `Scraping orders page ${page}`,
     );
 
-    const validOrders = await collectOrdersWithRetry(context, options, page);
+    if (listRoot === document) {
+      await ensureOrdersReady(90_000);
+    }
+
+    const pageSignature = getOrdersPageSignature(listRoot);
+    if (page > 1 && pageSignature && pageSignature === previousSignature) {
+      options.onProgress?.(
+        "Collecting orders",
+        "done",
+        `Pagination did not advance past page ${page - 1}; stopping to avoid duplicates`,
+      );
+      return true;
+    }
+    previousSignature = pageSignature;
+
+    const validOrders = await collectOrdersWithRetry(
+      context,
+      options,
+      page,
+      listRoot,
+    );
 
     options.onProgress?.(
       uploadToEverymarket ? "Saving orders" : "Extracting orders",
@@ -94,7 +124,7 @@ export async function syncOrders(
       options.onProgress?.(
         "Collecting orders",
         "done",
-        `Reached lookback of ${lookbackDays} day(s)`,
+        describeLookbackStop(validOrders, lookbackDays),
       );
       return true;
     }
@@ -102,11 +132,14 @@ export async function syncOrders(
     options.onProgress?.(
       "Collecting orders",
       `page ${page} next`,
-      `Opening orders page ${page + 1}`,
+      `Fetching orders page ${page + 1}`,
     );
 
-    const moved = await goToNextPage();
-    if (!moved) {
+    const nextDoc = await fetchNextOrdersDocument(
+      listRoot instanceof Document ? listRoot : document,
+      page,
+    );
+    if (!nextDoc) {
       options.onProgress?.(
         "Collecting orders",
         "done",
@@ -115,6 +148,7 @@ export async function syncOrders(
       return true;
     }
 
+    listRoot = nextDoc;
     page += 1;
   }
 }

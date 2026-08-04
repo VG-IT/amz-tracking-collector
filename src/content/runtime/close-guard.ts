@@ -2,6 +2,7 @@ const CLOSE_GUARD_MESSAGE =
   "Amazon Tracking Collector is still running. Leave this tab?";
 
 const BANNER_ID = "amz-tracking-collector-close-guard";
+export const NAVIGATING_KEY = "amazon_order_task_navigating";
 
 let installed = false;
 let allowNextUnload = false;
@@ -14,15 +15,18 @@ function isCollectionActive(): boolean {
   return !!expiresAt && Date.now() <= expiresAt;
 }
 
+function isPluginNavigating(): boolean {
+  return sessionStorage.getItem(NAVIGATING_KEY) === "1" || allowNextUnload;
+}
+
 function onBeforeUnload(event: BeforeUnloadEvent) {
-  if (allowNextUnload) {
+  if (isPluginNavigating()) {
     allowNextUnload = false;
     return;
   }
 
   if (!isCollectionActive()) return;
 
-  // Chrome only shows this dialog after the page has had user interaction.
   event.preventDefault();
   event.returnValue = CLOSE_GUARD_MESSAGE;
   return CLOSE_GUARD_MESSAGE;
@@ -101,9 +105,9 @@ export function enableCloseGuard() {
 }
 
 function onPageHide(event: PageTransitionEvent) {
-  // Persisted bfcache navigations are fine; real closes during a run are logged.
   if (event.persisted) return;
-  if (allowNextUnload) return;
+  // Full navigations for language switch / order-history entry must not look like a user close.
+  if (isPluginNavigating()) return;
   if (!isCollectionActive()) return;
   try {
     chrome.runtime
@@ -130,8 +134,7 @@ export function disableCloseGuard() {
 
 /**
  * Allow the next full-document navigation/unload without prompting.
- * No-op for same-document (hash) changes — those do not fire beforeunload,
- * and must not leave a sticky bypass flag behind.
+ * Uses sessionStorage so pagehide during unload still sees the flag.
  */
 export function allowPluginNavigation(nextUrl?: string) {
   let sameDocument = false;
@@ -151,9 +154,15 @@ export function allowPluginNavigation(nextUrl?: string) {
   if (sameDocument) return;
 
   allowNextUnload = true;
+  sessionStorage.setItem(NAVIGATING_KEY, "1");
   const token = ++allowToken;
-  // If unload never happens (SPA soft nav), clear the bypass so real closes still prompt.
   window.setTimeout(() => {
     if (token === allowToken) allowNextUnload = false;
   }, 2000);
+}
+
+/** Clear navigation flag after the new document loads. */
+export function clearPluginNavigationFlag() {
+  sessionStorage.removeItem(NAVIGATING_KEY);
+  allowNextUnload = false;
 }
