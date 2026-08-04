@@ -1,15 +1,17 @@
 import { collectOrdersOnPage } from "./list/order-list";
 import { saveOrders } from "./save/save-orders";
 import {
-  fetchNextOrdersDocument,
   getOrdersPageSignature,
+  goToNextOrdersPageViaUi,
 } from "./list/pagination";
 import {
   describeLookbackStop,
   isOrdersExpired,
+  parseOrderDate,
 } from "./domain/is-order-expired";
 import { Order } from "@/domain/Order";
 import { ensureOrdersReady } from "@/content/runtime/run-once";
+import { getTaskPage, setTaskPage } from "@/content/runtime/task";
 
 export type SyncOptions = {
   lookbackDays?: number;
@@ -22,18 +24,34 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function describeNewestDates(orders: Order[], limit = 3): string {
+  const dated = orders
+    .map((order) => ({
+      orderNumber: order.orderNumber,
+      orderDate: order.orderDate,
+      parsed: parseOrderDate(order.orderDate),
+    }))
+    .filter((item): item is typeof item & { parsed: Date } => item.parsed != null)
+    .sort((a, b) => b.parsed.getTime() - a.parsed.getTime())
+    .slice(0, limit);
+
+  if (dated.length === 0) return "no parseable dates";
+  return dated
+    .map(
+      (item) =>
+        `${item.orderNumber || "?"} (${item.orderDate} → ${item.parsed.toISOString().slice(0, 10)})`,
+    )
+    .join(", ");
+}
+
 async function collectOrdersWithRetry(
   context: { domain?: string },
   options: SyncOptions,
   page: number,
-  root: ParentNode,
 ): Promise<Order[]> {
-  let orders = (await collectOrdersOnPage(context, root)).filter(
+  let orders = (await collectOrdersOnPage(context, document)).filter(
     (o): o is Order => o !== null,
   );
-
-  // Live document only: fetched HTML is already complete.
-  if (root !== document) return orders;
 
   for (let attempt = 1; attempt <= 3 && orders.length === 0; attempt++) {
     if (options.shouldStop?.()) throw new Error("Stopped by user");
@@ -44,7 +62,7 @@ async function collectOrdersWithRetry(
     );
     await sleep(1000 * attempt);
     await ensureOrdersReady(60_000);
-    orders = (await collectOrdersOnPage(context, root)).filter(
+    orders = (await collectOrdersOnPage(context, document)).filter(
       (o): o is Order => o !== null,
     );
   }
@@ -52,6 +70,11 @@ async function collectOrdersWithRetry(
   return orders;
 }
 
+/**
+ * Scrape the live orders list, advancing only via on-page pagination controls.
+ * Returns true when collection is finished; false when a full page navigation
+ * is in progress and runOnce should resume on the next document.
+ */
 export async function syncOrders(
   user: { email: string; source: string; name?: string },
   context: { domain?: string },
@@ -59,8 +82,7 @@ export async function syncOrders(
 ) {
   const lookbackDays = options.lookbackDays ?? 30;
   const uploadToEverymarket = options.uploadToEverymarket !== false;
-  let page = 1;
-  let listRoot: Document | ParentNode = document;
+  let page = getTaskPage();
   let previousSignature = "";
 
   while (true) {
@@ -74,11 +96,9 @@ export async function syncOrders(
       `Scraping orders page ${page}`,
     );
 
-    if (listRoot === document) {
-      await ensureOrdersReady(90_000);
-    }
+    await ensureOrdersReady(90_000);
 
-    const pageSignature = getOrdersPageSignature(listRoot);
+    const pageSignature = getOrdersPageSignature(document);
     if (page > 1 && pageSignature && pageSignature === previousSignature) {
       options.onProgress?.(
         "Collecting orders",
@@ -89,18 +109,14 @@ export async function syncOrders(
     }
     previousSignature = pageSignature;
 
-    const validOrders = await collectOrdersWithRetry(
-      context,
-      options,
-      page,
-      listRoot,
-    );
+    const validOrders = await collectOrdersWithRetry(context, options, page);
 
     options.onProgress?.(
       uploadToEverymarket ? "Saving orders" : "Extracting orders",
       `page ${page}, ${validOrders.length} order(s)`,
       `Found ${validOrders.length} orders on page ${page}` +
-        (uploadToEverymarket ? "" : " (dry-run, not uploading)"),
+        (uploadToEverymarket ? "" : " (dry-run, not uploading)") +
+        `; dates: ${describeNewestDates(validOrders)}`,
     );
 
     if (validOrders.length > 0) {
@@ -115,7 +131,9 @@ export async function syncOrders(
       options.onProgress?.(
         "Collecting orders",
         "done",
-        "No more orders after waiting for page load",
+        page === 1
+          ? "No orders found on page 1 after waiting for page load"
+          : `No more orders on page ${page}`,
       );
       return true;
     }
@@ -129,26 +147,41 @@ export async function syncOrders(
       return true;
     }
 
+    const nextPage = page + 1;
+    setTaskPage(nextPage);
     options.onProgress?.(
       "Collecting orders",
       `page ${page} next`,
-      `Fetching orders page ${page + 1}`,
+      `Opening orders page ${nextPage} via pagination control`,
     );
 
-    const nextDoc = await fetchNextOrdersDocument(
-      listRoot instanceof Document ? listRoot : document,
-      page,
-    );
-    if (!nextDoc) {
+    const result = await goToNextOrdersPageViaUi();
+
+    if (result === "navigating") {
+      // Full navigation: content script reloads and runOnce continues.
+      return false;
+    }
+
+    if (result === "done") {
       options.onProgress?.(
         "Collecting orders",
         "done",
-        "No next orders page",
+        "No next pagination control",
       );
       return true;
     }
 
-    listRoot = nextDoc;
-    page += 1;
+    if (result === "timeout") {
+      options.onProgress?.(
+        "Collecting orders",
+        "done",
+        `Pagination control did not load page ${nextPage} in time`,
+      );
+      return true;
+    }
+
+    // SPA advanced in-place.
+    page = nextPage;
+    setTaskPage(page);
   }
 }

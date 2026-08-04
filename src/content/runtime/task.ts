@@ -9,6 +9,7 @@ export const TASK_KEY = "amazon_order_task";
 export const TASK_EXPIRES_KEY = "amazon_order_task_expires";
 export const TASK_SETTINGS_KEY = "amazon_order_task_settings";
 export const TASK_STOP_KEY = "amazon_order_task_stop";
+export const TASK_PAGE_KEY = "amazon_order_task_page";
 export const TASK_TTL = 10 * 60 * 1000;
 
 export type TaskSettings = {
@@ -44,6 +45,7 @@ export function requestStop() {
 
 export function startTask(settings?: TaskSettings) {
   sessionStorage.removeItem(TASK_STOP_KEY);
+  sessionStorage.setItem(TASK_PAGE_KEY, "1");
   clearPluginNavigationFlag();
   clearLanguageEnsureFlag();
   clearExtractedOrders();
@@ -53,6 +55,16 @@ export function startTask(settings?: TaskSettings) {
   }
   refreshTaskTTL();
   enableCloseGuard();
+}
+
+/** Current orders list page (survives full pagination navigations). */
+export function getTaskPage(): number {
+  const page = Number(sessionStorage.getItem(TASK_PAGE_KEY) || "1");
+  return Number.isFinite(page) && page >= 1 ? Math.floor(page) : 1;
+}
+
+export function setTaskPage(page: number) {
+  sessionStorage.setItem(TASK_PAGE_KEY, String(Math.max(1, Math.floor(page))));
 }
 
 export function getTaskSettings(): TaskSettings | null {
@@ -74,6 +86,7 @@ export function clearTask() {
   sessionStorage.removeItem(TASK_EXPIRES_KEY);
   sessionStorage.removeItem(TASK_SETTINGS_KEY);
   sessionStorage.removeItem(TASK_STOP_KEY);
+  sessionStorage.removeItem(TASK_PAGE_KEY);
   clearLanguageEnsureFlag();
   disableCloseGuard();
 }

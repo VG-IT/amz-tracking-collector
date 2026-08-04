@@ -47,10 +47,17 @@ function looksLikeDate(text: string): boolean {
     /\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(
       text,
     ) ||
+    /\b(jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\.?\b/i.test(text) ||
     /\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\b/i.test(
       text,
     ) ||
     /\b(janvier|février|mars|avril|mai|juin|juillet|août|septembre|octobre|novembre|décembre)\b/i.test(
+      text,
+    ) ||
+    /\b(januar|februar|märz|maerz|mai|juni|juli|oktober|dezember)\b/i.test(
+      text,
+    ) ||
+    /\b\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{4}\b/i.test(
       text,
     ) ||
     /\bde\s+\d{4}\b/i.test(text) ||
