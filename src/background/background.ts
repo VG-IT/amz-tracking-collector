@@ -19,10 +19,13 @@ function signInUrl(marketplace: Marketplace): string {
 const LOG_ENDPOINT = "https://logging.everymarket.com/api/v1/logs";
 const LOG_API_TOKEN =
   "7dfbd1c8a4e2453d9b2b569f37ce8b1c3c09e89157b7268cc60b6a4e35a68c51";
+const FULFILL_API_V2 = "https://fulfill.everymarket.com/api/v2";
 
 const MAX_RUN_LOGS = 3;
 const AUTO_RUN_ALARM_PREFIX = "amazon-tracking-auto-run-";
 const AUTO_RUN_HOURS = [0, 12] as const;
+const PENDING_POLL_ALARM = "amazon-tracking-pending-poll";
+const DEFAULT_PENDING_POLL_HOURS = 2;
 
 const AMAZON_TAB_URLS = [
   "*://*.amazon.com/*",
@@ -205,6 +208,30 @@ async function syncAutoRunAlarms() {
   );
 }
 
+async function syncPendingPollAlarm() {
+  const {
+    pendingPollEnabled = false,
+    pendingPollHours = DEFAULT_PENDING_POLL_HOURS,
+  } = await chrome.storage.sync.get({
+    pendingPollEnabled: false,
+    pendingPollHours: DEFAULT_PENDING_POLL_HOURS,
+  });
+
+  await chrome.alarms.clear(PENDING_POLL_ALARM);
+  if (!pendingPollEnabled) return;
+
+  const hours = Math.max(1, Number(pendingPollHours) || DEFAULT_PENDING_POLL_HOURS);
+  await chrome.alarms.create(PENDING_POLL_ALARM, {
+    delayInMinutes: 1,
+    periodInMinutes: hours * 60,
+  });
+}
+
+async function syncAllAlarms() {
+  await syncAutoRunAlarms();
+  await syncPendingPollAlarm();
+}
+
 async function sleep(ms: number, { ignoreStop = false } = {}) {
   if (!ignoreStop) ensureNotStopped();
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -277,11 +304,12 @@ async function sendToTab(
   throw lastError || new Error("Failed to message content script");
 }
 
-async function openOrReuseTab(url: string, { ignoreStop = false } = {}) {
+async function openOrReuseTab(url: string, { ignoreStop = false, active = true } = {}) {
   if (!ignoreStop) ensureNotStopped();
   if (state.tabId != null) {
     try {
-      await chrome.tabs.update(state.tabId, { url, active: true });
+      await chrome.tabs.get(state.tabId);
+      await chrome.tabs.update(state.tabId, { url, active });
       await waitForTabComplete(state.tabId);
       trackOpenedTab(state.tabId);
       return state.tabId;
@@ -289,7 +317,27 @@ async function openOrReuseTab(url: string, { ignoreStop = false } = {}) {
       state.tabId = null;
     }
   }
-  const tab = await chrome.tabs.create({ url, active: true });
+
+  // Reuse a leftover orders tab from a previous run if still open (not arbitrary shopping tabs).
+  try {
+    const existing = await chrome.tabs.query({ url: AMAZON_TAB_URLS });
+    const reusable = existing.find(
+      (tab) =>
+        tab.id != null &&
+        /\/your-orders\/|\/gp\/your-account\/order/i.test(tab.url || ""),
+    );
+    if (reusable?.id != null) {
+      state.tabId = reusable.id;
+      await chrome.tabs.update(state.tabId, { url, active });
+      await waitForTabComplete(state.tabId);
+      trackOpenedTab(state.tabId);
+      return state.tabId;
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const tab = await chrome.tabs.create({ url, active });
   state.tabId = tab.id ?? null;
   trackOpenedTab(tab.id);
   if (tab.id == null) throw new Error("Failed to open tab");
@@ -373,14 +421,40 @@ async function checkAmazonSession({
   }
 }
 
+async function fetchPriorityOrderNumbers(email: string, token: string): Promise<string[]> {
+  if (!email || !token) return [];
+  try {
+    const url = new URL(`${FULFILL_API_V2}/amazon_orders_pending_by_account`);
+    url.searchParams.set("token", token);
+    url.searchParams.set("account", email);
+    const resp = await fetch(url.toString(), {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!resp.ok) return [];
+    const body = await resp.json();
+    if (!Array.isArray(body)) return [];
+    return body
+      .map((row: { buy_order_number?: string; order_number?: string }) =>
+        String(row.buy_order_number || row.order_number || "").trim(),
+      )
+      .filter(Boolean);
+  } catch (err) {
+    console.warn("[Amazon Tracking Collector] fetchPriorityOrderNumbers failed", err);
+    return [];
+  }
+}
+
 async function runCollector({
   email,
   days,
   marketplace,
+  mode = "full",
 }: {
   email?: string;
   days?: number;
   marketplace?: Marketplace;
+  mode?: "full" | "pending";
 } = {}) {
   if (state.running) return { error: "Already running" };
 
@@ -398,6 +472,7 @@ async function runCollector({
   const lookbackDays = Number(days || settings.days) || 30;
   const market = (marketplace || settings.marketplace || "us") as Marketplace;
   const uploadToEverymarket = settings.uploadToEverymarket !== false;
+  const pendingOnly = mode === "pending";
 
   if (!buyerEmail) {
     return { error: "Please save a buyer email in extension settings first" };
@@ -416,8 +491,27 @@ async function runCollector({
   startRunLog({ email: buyerEmail, days: lookbackDays, marketplace: market });
 
   try {
+    let priorityOrderNumbers: string[] = [];
+    if (uploadToEverymarket && apiToken) {
+      setPhase("Loading requested orders");
+      priorityOrderNumbers = await fetchPriorityOrderNumbers(buyerEmail, apiToken);
+      log(
+        priorityOrderNumbers.length
+          ? `Ops-requested orders pending: ${priorityOrderNumbers.length} (${priorityOrderNumbers.slice(0, 20).join(", ")}${priorityOrderNumbers.length > 20 ? "…" : ""})`
+          : "Ops-requested orders pending: 0",
+      );
+    }
+
+    if (pendingOnly && priorityOrderNumbers.length === 0) {
+      setPhase("Done", "no pending");
+      log("No pending collection requests; skip scrape");
+      await finishRunLog("completed", { ok: true, pendingOnly: true, empty: true });
+      return { ok: true, email: buyerEmail, empty: true };
+    }
+
     log(
-      `Collector started for ${buyerEmail}, marketplace=${market}, lookbackDays=${lookbackDays}` +
+      `Collector started for ${buyerEmail}, marketplace=${market}` +
+        (pendingOnly ? ", mode=pending" : `, lookbackDays=${lookbackDays}`) +
         (uploadToEverymarket ? "" : ", upload=off"),
     );
     setPhase("Opening orders", market);
@@ -431,7 +525,7 @@ async function runCollector({
       throw new Error("LOGGED_OUT");
     }
 
-    setPhase("Collecting orders", "waiting for page");
+    setPhase(pendingOnly ? "Collecting pending" : "Collecting orders", "waiting for page");
     state.collectionEnd = null;
     const startResult = await sendToTab(tabId, {
       type: "startCollect",
@@ -441,6 +535,8 @@ async function runCollector({
         marketplace: market,
         token: uploadToEverymarket ? apiToken : undefined,
         uploadToEverymarket,
+        priorityOrderNumbers,
+        pendingOnly,
       },
     });
 
@@ -535,7 +631,15 @@ function waitForCollectionEnd(timeoutMs = 30 * 60 * 1000): Promise<CollectionEnd
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "START") {
-    runCollector(message.payload || {}).then((result) => sendResponse(result || { ok: true }));
+    runCollector({ ...(message.payload || {}), mode: "full" }).then((result) =>
+      sendResponse(result || { ok: true }),
+    );
+    return true;
+  }
+  if (message?.type === "START_PENDING") {
+    runCollector({ ...(message.payload || {}), mode: "pending" }).then((result) =>
+      sendResponse(result || { ok: true }),
+    );
     return true;
   }
   if (message?.type === "STOP") {
@@ -620,13 +724,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   // Legacy popup message
   if (message?.type === "getOrders") {
-    runCollector().then((result) => sendResponse(result || { ok: true }));
+    runCollector({ mode: "full" }).then((result) => sendResponse(result || { ok: true }));
     return true;
   }
   return false;
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === PENDING_POLL_ALARM) {
+    void (async () => {
+      const { pendingPollEnabled = false } = await chrome.storage.sync.get({
+        pendingPollEnabled: false,
+      });
+      if (!pendingPollEnabled) return;
+      log("Scheduled pending-poll alarm fired");
+      await runCollector({ mode: "pending" });
+    })();
+    return;
+  }
+
   if (!alarm.name.startsWith(AUTO_RUN_ALARM_PREFIX)) return;
 
   void (async () => {
@@ -638,23 +754,24 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
     // One-shot alarms are recreated so they stay at local 00:00/12:00 across DST.
     await chrome.alarms.create(alarm.name, { when: nextLocalHour(hour) });
-    await runCollector();
+    log("Scheduled full auto-run alarm fired");
+    await runCollector({ mode: "full" });
   })();
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === "sync" && changes.autoRunEnabled) {
-    void syncAutoRunAlarms();
-  }
+  if (areaName !== "sync") return;
+  if (changes.autoRunEnabled) void syncAutoRunAlarms();
+  if (changes.pendingPollEnabled || changes.pendingPollHours) void syncPendingPollAlarm();
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  void syncAutoRunAlarms();
+  void syncAllAlarms();
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  void syncAutoRunAlarms();
+  void syncAllAlarms();
 });
 
 void loadCachedSession();
-void syncAutoRunAlarms();
+void syncAllAlarms();

@@ -69,6 +69,8 @@ const App: React.FC = () => {
   const [marketplace, setMarketplace] = useState<Marketplace>("us");
   const [uploadToEverymarket, setUploadToEverymarket] = useState(true);
   const [autoRunEnabled, setAutoRunEnabled] = useState(false);
+  const [pendingPollEnabled, setPendingPollEnabled] = useState(false);
+  const [pendingPollHours, setPendingPollHours] = useState(2);
   const [session, setSession] = useState<Session>({ checked: false, loggedIn: false });
   const [running, setRunning] = useState(false);
   const [phase, setPhase] = useState("—");
@@ -159,6 +161,8 @@ const App: React.FC = () => {
         marketplace: "us",
         uploadToEverymarket: true,
         autoRunEnabled: false,
+        pendingPollEnabled: false,
+        pendingPollHours: 2,
       }),
       chrome.storage.local.get({ token: "" }),
     ]);
@@ -167,6 +171,8 @@ const App: React.FC = () => {
     setMarketplace((syncData.marketplace as Marketplace) || "us");
     setUploadToEverymarket(syncData.uploadToEverymarket !== false);
     setAutoRunEnabled(syncData.autoRunEnabled === true);
+    setPendingPollEnabled(syncData.pendingPollEnabled === true);
+    setPendingPollHours(Math.max(1, Number(syncData.pendingPollHours) || 2));
     setToken(localData.token || "");
   }, []);
 
@@ -189,13 +195,18 @@ const App: React.FC = () => {
         marketplace,
         uploadToEverymarket,
         autoRunEnabled,
+        pendingPollEnabled,
+        pendingPollHours: Math.max(1, Number(pendingPollHours) || 2),
       }),
       chrome.storage.local.set({ token: nextToken }),
     ]);
     appendLog(
       `Settings saved: ${nextEmail} (${marketplace})` +
         (uploadToEverymarket ? "" : ", upload off") +
-        (autoRunEnabled ? ", auto-run at 00:00/12:00" : ""),
+        (autoRunEnabled ? ", auto-run at 00:00/12:00" : "") +
+        (pendingPollEnabled
+          ? `, pending-poll every ${Math.max(1, Number(pendingPollHours) || 2)}h`
+          : ""),
     );
     return true;
   }, [
@@ -205,6 +216,8 @@ const App: React.FC = () => {
     marketplace,
     uploadToEverymarket,
     autoRunEnabled,
+    pendingPollEnabled,
+    pendingPollHours,
     appendLog,
   ]);
 
@@ -427,11 +440,32 @@ const App: React.FC = () => {
             checked={autoRunEnabled}
             onChange={(e) => setAutoRunEnabled(e.target.checked)}
           />
-          <span>Auto-run daily at 00:00 and 12:00</span>
+          <span>Auto-run full collect daily at 00:00 and 12:00</span>
         </label>
         <p className="hint checkbox-hint">
-          Uses this computer&apos;s local time. Chrome must be running and Amazon login must remain
-          valid.
+          Full scrape + upload. Uses local time; Chrome must stay running.
+        </p>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={pendingPollEnabled}
+            onChange={(e) => setPendingPollEnabled(e.target.checked)}
+          />
+          <span>Auto-poll pending collection requests</span>
+        </label>
+        <label>
+          Pending poll interval (hours)
+          <input
+            type="number"
+            min={1}
+            max={24}
+            value={pendingPollHours}
+            disabled={!pendingPollEnabled}
+            onChange={(e) => setPendingPollHours(Math.max(1, Number(e.target.value) || 2))}
+          />
+        </label>
+        <p className="hint checkbox-hint">
+          Reads pending orders from EveryMarket, collects only those, then uploads. Skips when queue is empty.
         </p>
 
         <div className="actions">
@@ -455,7 +489,7 @@ const App: React.FC = () => {
                 return;
               }
               setLiveLog("");
-              appendLog("Starting collector…");
+              appendLog("Starting full collector…");
               setRunning(true);
               const response = await chrome.runtime.sendMessage({
                 type: "START",
@@ -466,6 +500,35 @@ const App: React.FC = () => {
             }}
           >
             Start
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={!canStart}
+            onClick={async () => {
+              const saved = await saveSettings();
+              if (!saved) return;
+              if (!session.loggedIn) {
+                appendLog("Please Check Login first");
+                return;
+              }
+              if (!uploadToEverymarket) {
+                appendLog("Enable Upload to EveryMarket to collect pending requests");
+                return;
+              }
+              setLiveLog("");
+              appendLog("Starting pending-only collector…");
+              setRunning(true);
+              const response = await chrome.runtime.sendMessage({
+                type: "START_PENDING",
+                payload: { email: email.trim(), days, marketplace },
+              });
+              if (response?.error) appendLog(`Error: ${response.error}`);
+              else if (response?.empty) appendLog("No pending orders to collect");
+              await loadRunLogs();
+            }}
+          >
+            Collect Pending
           </button>
           <button
             type="button"
@@ -480,8 +543,8 @@ const App: React.FC = () => {
           </button>
         </div>
         <p className="hint">
-          Tip: use Collect Orders on the Amazon page. Collection stops when orders are older than
-          lookback days.
+          Start = full lookback scrape + pending. Collect Pending = only ops-requested orders, then upload.
+          Page button also starts a full collect.
         </p>
       </form>
 

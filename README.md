@@ -30,15 +30,19 @@ Load the extension:
 2. Click **Check Login** to open the Amazon orders URL in the background:
    - Sign-in page / missing auth cookie → prompt to sign in
    - Otherwise → treated as logged in (result is cached)
-3. On any Amazon page, click the bottom-right **Collect Orders** button to start (or use **Start** in the popup)
-4. If logout is detected while collecting, run **Check Login** again
-5. Opened collector tabs are closed when the run finishes
+3. On any Amazon page, click the bottom-right **Collect Orders** button to start a **full** collect (or use **Start** in the popup)
+4. Use **Collect Pending** in the popup to only fetch ops-requested orders and upload them
+5. If logout is detected while collecting, run **Check Login** again
+6. Opened collector tabs are closed when the run finishes
 
 ### Scheduled collection
 
-After saving a valid login and settings, enable **Auto-run daily at 00:00 and
-12:00** in the popup. The schedule uses the computer's local time. Chrome must
-be running; if the Amazon session expires, check login again.
+After saving a valid login and settings:
+
+- **Auto-run full collect daily at 00:00 and 12:00** — full scrape + upload
+- **Auto-poll pending collection requests** — every N hours (default 2), reads pending from EveryMarket, collects only those, uploads; skips when empty
+
+Schedules use the computer's local time. Chrome must be running; if the Amazon session expires, check login again.
 
 ## Develop
 

@@ -19,6 +19,10 @@ export type TaskSettings = {
   token?: string;
   /** When false, scrape only and log extracted orders (no EveryMarket upload). */
   uploadToEverymarket?: boolean;
+  /** Ops-requested buy order numbers that must be collected even outside lookback. */
+  priorityOrderNumbers?: string[];
+  /** Skip order-list pagination; only collect priorityOrderNumbers and upload. */
+  pendingOnly?: boolean;
 };
 
 export function isTaskRunning(): boolean {

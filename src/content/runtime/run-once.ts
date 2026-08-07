@@ -202,6 +202,8 @@ export async function runOnce() {
     const isDone = await syncOrders(user, context, {
       lookbackDays,
       uploadToEverymarket,
+      priorityOrderNumbers: settings?.priorityOrderNumbers || [],
+      pendingOnly: settings?.pendingOnly === true,
       shouldStop: () => isStopRequested(),
       onProgress: (phase, progress, logLine) => reportProgress(phase, progress, logLine),
     });

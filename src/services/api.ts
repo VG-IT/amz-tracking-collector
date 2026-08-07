@@ -138,3 +138,33 @@ export async function sendClickLog(email?: string) {
     },
   );
 }
+
+export type PendingCollectionOrder = {
+  buy_order_number?: string;
+  order_number?: string;
+  buy_account?: string;
+  fulfill_order_id?: number | null;
+  source?: string;
+  status?: string;
+};
+
+/** Orders ops asked plugins to collect (missing fulfill info in em-ops). */
+export async function getPendingCollectionOrders(
+  account: string,
+): Promise<PendingCollectionOrder[]> {
+  const token = await getApiToken();
+  if (!token || !account) return [];
+
+  const v2Base = BASE_URL.replace("/amazon_orders", "").replace("v3", "v2");
+  const url = new URL(`${v2Base}/amazon_orders_pending_by_account`);
+  url.searchParams.set("token", token);
+  url.searchParams.set("account", account);
+
+  const result = await retryFetch<PendingCollectionOrder[]>(url.toString(), {
+    method: "GET",
+    headers,
+  });
+
+  if (!result.ok || !Array.isArray(result.data)) return [];
+  return result.data;
+}

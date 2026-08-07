@@ -11,11 +11,15 @@ import {
 } from "./domain/is-order-expired";
 import { Order } from "@/domain/Order";
 import { ensureOrdersReady } from "@/content/runtime/run-once";
-import { getTaskPage, setTaskPage } from "@/content/runtime/task";
+import { getTaskPage, getTaskSettings, setTaskPage } from "@/content/runtime/task";
+import { buildOrderFromOrderNumber } from "./flow/build-order-from-number";
+import { sleep as apiSleep } from "@/services/api";
 
 export type SyncOptions = {
   lookbackDays?: number;
   uploadToEverymarket?: boolean;
+  priorityOrderNumbers?: string[];
+  pendingOnly?: boolean;
   shouldStop?: () => boolean;
   onProgress?: (phase: string, progress?: string, logLine?: string) => void;
 };
@@ -70,6 +74,58 @@ async function collectOrdersWithRetry(
   return orders;
 }
 
+async function collectPriorityOrders(
+  user: { email: string; source: string; name?: string },
+  context: { domain?: string },
+  remaining: Set<string>,
+  options: SyncOptions,
+) {
+  if (!remaining.size) return;
+
+  const uploadToEverymarket = options.uploadToEverymarket !== false;
+  const collected: Order[] = [];
+
+  for (const orderNumber of Array.from(remaining)) {
+    if (options.shouldStop?.()) throw new Error("Stopped by user");
+    options.onProgress?.(
+      "Collecting requested orders",
+      orderNumber,
+      `Fetching ops-requested order detail: ${orderNumber}`,
+    );
+    try {
+      const order = await buildOrderFromOrderNumber(orderNumber, context);
+      if (order?.orderNumber) {
+        collected.push(order);
+        remaining.delete(orderNumber);
+      }
+    } catch (err) {
+      options.onProgress?.(
+        "Collecting requested orders",
+        orderNumber,
+        `Failed to fetch ${orderNumber}: ${(err as Error).message || String(err)}`,
+      );
+    }
+    await apiSleep(800);
+  }
+
+  if (collected.length > 0) {
+    await saveOrders(user, collected, context, { uploadToEverymarket });
+    options.onProgress?.(
+      "Collecting requested orders",
+      "saved",
+      `Saved ${collected.length} ops-requested order(s)`,
+    );
+  }
+
+  if (remaining.size > 0) {
+    options.onProgress?.(
+      "Collecting requested orders",
+      "remaining",
+      `Still missing ops-requested orders: ${Array.from(remaining).join(", ")}`,
+    );
+  }
+}
+
 /**
  * Scrape the live orders list, advancing only via on-page pagination controls.
  * Returns true when collection is finished; false when a full page navigation
@@ -82,6 +138,24 @@ export async function syncOrders(
 ) {
   const lookbackDays = options.lookbackDays ?? 30;
   const uploadToEverymarket = options.uploadToEverymarket !== false;
+  const settings = getTaskSettings();
+  const pendingOnly = options.pendingOnly === true || settings?.pendingOnly === true;
+  const priority = new Set(
+    (options.priorityOrderNumbers || settings?.priorityOrderNumbers || [])
+      .map((n) => String(n).trim())
+      .filter(Boolean),
+  );
+
+  if (pendingOnly) {
+    options.onProgress?.(
+      "Collecting requested orders",
+      `${priority.size}`,
+      `Pending-only mode: collecting ${priority.size} ops-requested order(s)`,
+    );
+    await collectPriorityOrders(user, context, priority, options);
+    return true;
+  }
+
   let page = getTaskPage();
   let previousSignature = "";
 
@@ -93,7 +167,8 @@ export async function syncOrders(
     options.onProgress?.(
       "Collecting orders",
       `page ${page}`,
-      `Scraping orders page ${page}`,
+      `Scraping orders page ${page}` +
+        (priority.size ? ` (${priority.size} ops-requested remaining)` : ""),
     );
 
     await ensureOrdersReady(90_000);
@@ -105,11 +180,16 @@ export async function syncOrders(
         "done",
         `Pagination did not advance past page ${page - 1}; stopping to avoid duplicates`,
       );
+      await collectPriorityOrders(user, context, priority, options);
       return true;
     }
     previousSignature = pageSignature;
 
     const validOrders = await collectOrdersWithRetry(context, options, page);
+
+    for (const order of validOrders) {
+      if (order.orderNumber) priority.delete(order.orderNumber);
+    }
 
     options.onProgress?.(
       uploadToEverymarket ? "Saving orders" : "Extracting orders",
@@ -135,15 +215,27 @@ export async function syncOrders(
           ? "No orders found on page 1 after waiting for page load"
           : `No more orders on page ${page}`,
       );
+      await collectPriorityOrders(user, context, priority, options);
       return true;
     }
 
-    if (isOrdersExpired(validOrders, lookbackDays)) {
+    // Keep paging past lookback while ops-requested orders are still missing.
+    if (isOrdersExpired(validOrders, lookbackDays) && priority.size === 0) {
       options.onProgress?.(
         "Collecting orders",
         "done",
         describeLookbackStop(validOrders, lookbackDays),
       );
+      return true;
+    }
+
+    if (isOrdersExpired(validOrders, lookbackDays) && priority.size > 0) {
+      options.onProgress?.(
+        "Collecting orders",
+        "priority",
+        `Lookback reached; collecting ${priority.size} remaining ops-requested order(s) by detail URL`,
+      );
+      await collectPriorityOrders(user, context, priority, options);
       return true;
     }
 
@@ -168,6 +260,7 @@ export async function syncOrders(
         "done",
         "No next pagination control",
       );
+      await collectPriorityOrders(user, context, priority, options);
       return true;
     }
 
@@ -177,6 +270,7 @@ export async function syncOrders(
         "done",
         `Pagination control did not load page ${nextPage} in time`,
       );
+      await collectPriorityOrders(user, context, priority, options);
       return true;
     }
 

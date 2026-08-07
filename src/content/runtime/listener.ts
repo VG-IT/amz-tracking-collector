@@ -59,6 +59,10 @@ export function initMessageListener() {
           marketplace: payload.marketplace || "us",
           token: payload.token,
           uploadToEverymarket: payload.uploadToEverymarket !== false,
+          priorityOrderNumbers: Array.isArray(payload.priorityOrderNumbers)
+            ? payload.priorityOrderNumbers.map((n) => String(n).trim()).filter(Boolean)
+            : [],
+          pendingOnly: payload.pendingOnly === true,
         };
 
         startTask(settings);
