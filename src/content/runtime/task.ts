@@ -10,6 +10,7 @@ export const TASK_EXPIRES_KEY = "amazon_order_task_expires";
 export const TASK_SETTINGS_KEY = "amazon_order_task_settings";
 export const TASK_STOP_KEY = "amazon_order_task_stop";
 export const TASK_PAGE_KEY = "amazon_order_task_page";
+export const TASK_PENDING_NAV_KEY = "amazon_order_task_pending_navigation";
 export const TASK_TTL = 10 * 60 * 1000;
 
 export type TaskSettings = {
@@ -50,6 +51,7 @@ export function requestStop() {
 export function startTask(settings?: TaskSettings) {
   sessionStorage.removeItem(TASK_STOP_KEY);
   sessionStorage.setItem(TASK_PAGE_KEY, "1");
+  sessionStorage.removeItem(TASK_PENDING_NAV_KEY);
   clearPluginNavigationFlag();
   clearLanguageEnsureFlag();
   clearExtractedOrders();
@@ -91,6 +93,7 @@ export function clearTask() {
   sessionStorage.removeItem(TASK_SETTINGS_KEY);
   sessionStorage.removeItem(TASK_STOP_KEY);
   sessionStorage.removeItem(TASK_PAGE_KEY);
+  sessionStorage.removeItem(TASK_PENDING_NAV_KEY);
   clearLanguageEnsureFlag();
   disableCloseGuard();
 }

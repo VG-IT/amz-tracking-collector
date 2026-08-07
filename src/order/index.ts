@@ -12,8 +12,7 @@ import {
 import { Order } from "@/domain/Order";
 import { ensureOrdersReady } from "@/content/runtime/run-once";
 import { getTaskPage, getTaskSettings, setTaskPage } from "@/content/runtime/task";
-import { buildOrderFromOrderNumber } from "./flow/build-order-from-number";
-import { sleep as apiSleep } from "@/services/api";
+import { startOrderNavigation } from "./flow/collect-orders-via-navigation";
 
 export type SyncOptions = {
   lookbackDays?: number;
@@ -80,50 +79,14 @@ async function collectPriorityOrders(
   remaining: Set<string>,
   options: SyncOptions,
 ) {
-  if (!remaining.size) return;
-
+  if (!remaining.size) return true;
   const uploadToEverymarket = options.uploadToEverymarket !== false;
-  const collected: Order[] = [];
-
-  for (const orderNumber of Array.from(remaining)) {
-    if (options.shouldStop?.()) throw new Error("Stopped by user");
-    options.onProgress?.(
-      "Collecting requested orders",
-      orderNumber,
-      `Fetching ops-requested order detail: ${orderNumber}`,
-    );
-    try {
-      const order = await buildOrderFromOrderNumber(orderNumber, context);
-      if (order?.orderNumber) {
-        collected.push(order);
-        remaining.delete(orderNumber);
-      }
-    } catch (err) {
-      options.onProgress?.(
-        "Collecting requested orders",
-        orderNumber,
-        `Failed to fetch ${orderNumber}: ${(err as Error).message || String(err)}`,
-      );
-    }
-    await apiSleep(800);
-  }
-
-  if (collected.length > 0) {
-    await saveOrders(user, collected, context, { uploadToEverymarket });
-    options.onProgress?.(
-      "Collecting requested orders",
-      "saved",
-      `Saved ${collected.length} ops-requested order(s)`,
-    );
-  }
-
-  if (remaining.size > 0) {
-    options.onProgress?.(
-      "Collecting requested orders",
-      "remaining",
-      `Still missing ops-requested orders: ${Array.from(remaining).join(", ")}`,
-    );
-  }
+  return !startOrderNavigation(
+    remaining,
+    context,
+    uploadToEverymarket,
+    (phase, progress, logLine) => options.onProgress?.(phase, progress, logLine),
+  );
 }
 
 /**
@@ -152,8 +115,7 @@ export async function syncOrders(
       `${priority.size}`,
       `Pending-only mode: collecting ${priority.size} ops-requested order(s)`,
     );
-    await collectPriorityOrders(user, context, priority, options);
-    return true;
+    return collectPriorityOrders(user, context, priority, options);
   }
 
   let page = getTaskPage();
@@ -180,8 +142,7 @@ export async function syncOrders(
         "done",
         `Pagination did not advance past page ${page - 1}; stopping to avoid duplicates`,
       );
-      await collectPriorityOrders(user, context, priority, options);
-      return true;
+      return collectPriorityOrders(user, context, priority, options);
     }
     previousSignature = pageSignature;
 
@@ -200,7 +161,19 @@ export async function syncOrders(
     );
 
     if (validOrders.length > 0) {
-      await saveOrders(user, validOrders, context, { uploadToEverymarket });
+      const result = await saveOrders(user, validOrders, context, {
+        uploadToEverymarket,
+      });
+      if (uploadToEverymarket && result.skippedZeroCost > 0) {
+        options.onProgress?.(
+          "Saving orders",
+          `page ${page}`,
+          `Skipped ${result.skippedZeroCost} order(s) with buy cost 0` +
+            (result.uploaded
+              ? `; uploaded ${result.uploaded}`
+              : "; nothing uploaded"),
+        );
+      }
     }
 
     if (options.shouldStop?.()) {
@@ -215,8 +188,7 @@ export async function syncOrders(
           ? "No orders found on page 1 after waiting for page load"
           : `No more orders on page ${page}`,
       );
-      await collectPriorityOrders(user, context, priority, options);
-      return true;
+      return collectPriorityOrders(user, context, priority, options);
     }
 
     // Keep paging past lookback while ops-requested orders are still missing.
@@ -235,8 +207,7 @@ export async function syncOrders(
         "priority",
         `Lookback reached; collecting ${priority.size} remaining ops-requested order(s) by detail URL`,
       );
-      await collectPriorityOrders(user, context, priority, options);
-      return true;
+      return collectPriorityOrders(user, context, priority, options);
     }
 
     const nextPage = page + 1;
@@ -260,8 +231,7 @@ export async function syncOrders(
         "done",
         "No next pagination control",
       );
-      await collectPriorityOrders(user, context, priority, options);
-      return true;
+      return collectPriorityOrders(user, context, priority, options);
     }
 
     if (result === "timeout") {
@@ -270,8 +240,7 @@ export async function syncOrders(
         "done",
         `Pagination control did not load page ${nextPage} in time`,
       );
-      await collectPriorityOrders(user, context, priority, options);
-      return true;
+      return collectPriorityOrders(user, context, priority, options);
     }
 
     // SPA advanced in-place.

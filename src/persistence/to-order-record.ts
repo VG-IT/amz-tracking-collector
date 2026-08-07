@@ -11,6 +11,7 @@ export function toOrderRecord(
   return {
     order_number: order.orderNumber,
     buy_order_date: order.orderDate ?? null,
+    status: order.status ?? null,
     ship_to: order.shipTo ?? null,
 
     address: order.address ?? null,

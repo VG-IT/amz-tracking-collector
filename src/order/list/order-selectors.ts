@@ -60,7 +60,22 @@ export function extractOrderNumberFromUrl(url: string): string | null {
 }
 
 export function extractOrderNumberFromDocument(doc: Document): string | null {
-  return doc.body?.textContent?.match(/\b\d{3}-\d{7}-\d{7}\b/)?.[0] ?? null;
+  const html = doc.documentElement?.innerHTML || doc.body?.innerHTML || "";
+  const fromParam =
+    html.match(/[?&]orderID=(\d{3}-\d{7}-\d{7})/i)?.[1] ||
+    html.match(/[?&]orderId=(\d{3}-\d{7}-\d{7})/i)?.[1] ||
+    html.match(/orderID(?:%3D|=)(\d{3}-\d{7}-\d{7})/i)?.[1] ||
+    html.match(/orderId(?:%3D|=)(\d{3}-\d{7}-\d{7})/i)?.[1];
+  if (fromParam) return fromParam;
+
+  // Avoid Amazon session IDs that share the order-number shape (ue_sid / session.id).
+  const bodyText = doc.body?.textContent || "";
+  const labeled = bodyText.match(
+    /(?:order\s*#|order\s*no\.?|pedido\s*n[º°o.]|bestellnr\.?)\s*[:\s]*(\d{3}-\d{7}-\d{7})/i,
+  )?.[1];
+  if (labeled) return labeled;
+
+  return bodyText.match(/\b\d{3}-\d{7}-\d{7}\b/)?.[0] ?? null;
 }
 
 export function extractOrderNumberFromAnyUrlInCard(card: Element): string | null {

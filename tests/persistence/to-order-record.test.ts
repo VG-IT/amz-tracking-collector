@@ -48,6 +48,7 @@ describe("toOrderRecord", () => {
     expect(record).toEqual({
       order_number: "111-6784099-6345037",
       buy_order_date: "June 12, 2025",
+      status: null,
       ship_to: "Joy Z",
       address: "2101 E TERRA LN, O FALLON, MO",
       payment_method: "AMEX ending in 2044",

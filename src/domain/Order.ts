@@ -5,6 +5,7 @@ import {OrderCost} from "./OrderCost"
 export interface Order {
   orderNumber: string;
   orderDate: string | null;
+  status?: string | null;
   shipTo: string | null;
   cost: any;
 	shipments: Record<string, Shipment>;

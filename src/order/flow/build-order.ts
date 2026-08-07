@@ -7,6 +7,10 @@ import { fetchOrderDetail } from "./fetch-order-detail";
 import { buildShipments } from "./build-shipments";
 import { normalizeOrderCost } from "@/order/domain/normalize-order-cost";
 import { Order } from "@/domain/Order";
+import {
+  CANCELLED_STATUS,
+  isOrderCancelled,
+} from "../extract/extract-order-cancelled";
 
 export async function buildOrder(
   orderCard: Element,
@@ -21,8 +25,10 @@ export async function buildOrder(
   const paymentMethod = extractPaymentMethod(detailDoc);
 
   const shipments = await buildShipments(detailDoc);
+  const cancelled = isOrderCancelled(detailDoc);
   return {
     ...summary,
+    ...(cancelled ? { status: CANCELLED_STATUS } : {}),
     cost,
     address,
     paymentMethod: paymentMethod ?? undefined,

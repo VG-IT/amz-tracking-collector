@@ -17,6 +17,11 @@ const TRACK_LINK_TEXTS = [
 export async function fetchTrackingPage(
   shipmentElem: Element,
 ): Promise<Document | null> {
+  const url = getTrackingPageUrl(shipmentElem);
+  return url ? fetchInfo(url) : null;
+}
+
+export function getTrackingPageUrl(shipmentElem: Element): string | null {
   const links = shipmentElem.querySelectorAll(TRACK_LINK_SELECTOR);
 
   for (const link of Array.from(links)) {
@@ -32,7 +37,7 @@ export async function fetchTrackingPage(
     if (!textMatched && !hrefMatched) continue;
     if (!href) continue;
 
-    return fetchInfo(href);
+    return new URL(href, window.location.origin).href;
   }
 
   return null;

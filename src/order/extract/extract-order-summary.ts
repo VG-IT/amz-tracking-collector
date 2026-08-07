@@ -106,22 +106,28 @@ function findLabeledValue(
 }
 
 export function extractOrderSummary(root: Element) {
-  let orderNumber: string | null = null;
+  let orderNumber =
+    root
+      .querySelector('[data-component="orderId"]')
+      ?.textContent?.match(/\b\d{3}-\d{7}-\d{7}\b/)?.[0] ?? null;
 
-  const labelOrder = Array.from(
-    root.querySelectorAll("span.a-color-secondary.a-text-caps, span"),
-  ).find((el) => {
-    const text = normalizeLabel(el.textContent);
-    return ORDER_NUMBER_LABELS.some(
-      (label) => text === label || text.startsWith(`${label} `),
-    );
-  });
+  if (!orderNumber) {
+    const labelOrder = Array.from(
+      root.querySelectorAll("span.a-color-secondary.a-text-caps, span"),
+    ).find((el) => {
+      const text = normalizeLabel(el.textContent);
+      return ORDER_NUMBER_LABELS.some(
+        (label) => text === label || text.startsWith(`${label} `),
+      );
+    });
 
-  const rowOrder =
-    labelOrder?.closest(".a-row") ??
-    labelOrder?.closest("li") ??
-    labelOrder?.parentElement;
-  orderNumber = rowOrder?.textContent?.match(/\b\d{3}-\d{7}-\d{7}\b/)?.[0] ?? null;
+    const rowOrder =
+      labelOrder?.closest(".a-row") ??
+      labelOrder?.closest("li") ??
+      labelOrder?.parentElement;
+    orderNumber =
+      rowOrder?.textContent?.match(/\b\d{3}-\d{7}-\d{7}\b/)?.[0] ?? null;
+  }
 
   if (!orderNumber) {
     orderNumber = extractOrderNumberFromCard(root);
@@ -131,11 +137,16 @@ export function extractOrderSummary(root: Element) {
   }
 
   let orderDate =
+    root
+      .querySelector('[data-component="orderDate"]')
+      ?.textContent?.replace(/\s+/g, " ")
+      .trim() ||
     findLabeledValue(
       root,
       ORDER_DATE_LABELS,
       ".a-row.a-size-base, span.a-color-secondary.aok-break-word, .value",
-    ) ?? null;
+    ) ||
+    null;
 
   if (!orderDate) {
     const labelDate = Array.from(root.querySelectorAll(".a-column")).find((col) => {

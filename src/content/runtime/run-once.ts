@@ -17,6 +17,10 @@ import { buildContext, getCurrentAmazonCountry, isLogged, isLoginPage } from "./
 import { prepareEnglishLocaleSwitch } from "./ensure-english";
 import { loadUser } from "./user";
 import { ORDER_SELECTOR } from "../../order/list/order-selectors";
+import {
+  hasPendingNavigation,
+  resumeOrderNavigation,
+} from "../../order/flow/collect-orders-via-navigation";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -148,12 +152,15 @@ export async function runOnce() {
   return;
   }
 
-  try {
-    await ensureOrdersReady();
-  } catch (err) {
-    clearTask();
-    reportDone("error", (err as Error).message);
-    return;
+  const resumingPendingNavigation = hasPendingNavigation();
+  if (!resumingPendingNavigation) {
+    try {
+      await ensureOrdersReady();
+    } catch (err) {
+      clearTask();
+      reportDone("error", (err as Error).message);
+      return;
+    }
   }
 
   refreshTaskTTL();
@@ -199,6 +206,24 @@ export async function runOnce() {
   const lookbackDays = Number(settings?.days) || 30;
 
   try {
+    if (resumingPendingNavigation) {
+      const isDone = await resumeOrderNavigation(
+        user,
+        context,
+        (phase, progress, logLine) => reportProgress(phase, progress, logLine),
+      );
+      if (!isDone) {
+        refreshTaskTTL();
+        return;
+      }
+
+      logExtractedOrdersIfNeeded(uploadToEverymarket);
+      clearTask();
+      if (uploadToEverymarket) await sendClickLog(user.email);
+      reportDone("completed");
+      return;
+    }
+
     const isDone = await syncOrders(user, context, {
       lookbackDays,
       uploadToEverymarket,

@@ -5,7 +5,14 @@ type ApiResult<T> =
   | { ok: false; status?: number; error: string };
 
 export async function fetchInfo(url: string): Promise<Document> {
-  const response = await fetch(url, { credentials: "include" });
+  let response: Response;
+  try {
+    response = await fetch(url, { credentials: "include" });
+  } catch (err) {
+    throw new Error(
+      `Network/CORS error for ${url}: ${(err as Error).message || String(err)}`,
+    );
+  }
 
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}: ${url}`);
